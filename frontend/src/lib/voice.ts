@@ -95,16 +95,18 @@ export type Command =
   | 'settings'
 
 const PATTERNS: [Command, RegExp][] = [
-  // More specific phrases first so they win over short navigation words.
-  ['start', /\b(start|begin) (the )?(class|lecture|recording)\b/],
-  ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
-  ['stop', /\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
-  ['bookmark', /\b(bookmark|mark (this|that))\b/],
+  // More specific phrases first so short words like "start" / "over" do not steal them.
   ['quiz', /\b(start (the )?quiz|quiz me|test me)\b/],
+  ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
+  ['start', /^\s*start\s*$|\b(start|begin) (the )?(class|lecture|recording)\b/],
+  ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
+  ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
+  // "over" alone ends the class; keep older "end class" phrases as backup.
+  ['stop', /^\s*over\s*$|\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
+  ['bookmark', /\b(bookmark|mark (this|that))\b/],
   ['read', /\bread (my |the )?notes\b/],
   ['done', /\b(i'?m done|that'?s my answer|next question)\b/],
   ['home', /\b(go home|main menu|home screen)\b/],
-  ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
   ['next', /\bnext( card| one)?\b/],
   ['previous', /\b(previous|last card|go back)( card| one)?\b/],
   ['cards', /\b((open |show |go to )?(the )?flash ?cards?|(open |show |go to )?cards)\b/],
@@ -114,7 +116,6 @@ const PATTERNS: [Command, RegExp][] = [
   ['notes', /\b((open |show |go to )?(my |the )?notes|notes)\b/],
   ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
   ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
-  ['starttab', /\b((go to |open |show )?(the )?start( tab| screen)?|start tab)\b/],
 ]
 
 type Handler = (c: Command) => void

@@ -140,14 +140,14 @@ export function Home(props: Props) {
                 data-on={listening}
               >
                 <Microphone aria-hidden="true" weight="bold" className="size-[1.6em]" />
-                Start class
+                Start
                 <Wave on={listening} />
               </button>
               <p id="start-hint" className="text-center text-xl font-medium text-muted-foreground">
                 {listening
                   ? shortcuts
-                    ? 'Listening… say "start class", tap, or press Space'
-                    : 'Listening… say "start class" or tap'
+                    ? 'Listening… say "start", tap, or press Space'
+                    : 'Listening… say "start" or tap'
                   : shortcuts
                     ? 'Tap or press Space to start'
                     : 'Tap to start'}

@@ -13,7 +13,7 @@
 
 Biʼire’s interface is built around one idea: **a student who cannot write or type can still capture a lecture, revise it, and study — mostly by voice.**
 
-The UI is deliberately sparse. One primary action fills the first screen (Start class). Secondary work (notebooks, settings, study tools) sits behind a small bottom bar. Every important action has three paths: **voice**, **large tap**, and **keyboard**. Audio cues and spoken confirmations mean the student does not have to look at the screen.
+The UI is deliberately sparse. One primary action fills the first screen (**Start**). Secondary work (notebooks, settings, study tools) sits behind a small bottom bar. Every important action has three paths: **voice**, **large tap**, and **keyboard**. Audio cues and spoken confirmations mean the student does not have to look at the screen.
 
 Automated accessibility scans report **0 axe violations** on Home, Notes, and Quiz. The design system follows Minimalism / Swiss Style with light and dark themes, large touch targets, and Ethiopic-capable typography.
 
@@ -23,9 +23,9 @@ Automated accessibility scans report **0 axe violations** on Home, Notes, and Qu
 
 | User need | How the UI supports it |
 |---|---|
-| Start a class without fine motor control | One huge round green button; say “start class” or press Space |
+| Start a class without fine motor control | One huge round green button; say “start” or press Space |
 | Follow the lecture without writing | Live transcript + Bookmark (voice / Space) |
-| Get usable notes after class | One “End class” action → structured notes (summary, definitions, takeaways, exam hints) |
+| Get usable notes after class | One “Over” action → structured notes (summary, definitions, takeaways, exam hints) |
 | Capture a personal thought later | Notebooks → “Speak a note” → Save |
 | Revise without typing | Study tabs: Cards, Ask (tutor), Plan, Materials |
 | Work in Amharic / Afaan Oromo | Language setting; `lang` on content; Ethiopic font stack |
@@ -36,7 +36,7 @@ Automated accessibility scans report **0 axe violations** on Home, Notes, and Qu
 
 ## 3. Design principles
 
-1. **One job per screen** — Home start view shows only Start class; study tools are separate tabs.
+1. **One job per screen** — Home start view shows only Start; study tools are separate tabs.
 2. **Brand first** — Header always shows ብዕሬ + Biʼire with the pen-nib mark (ብዕሬ ≈ “my pen”).
 3. **Voice first, screen second** — Beeps + spoken status for start, bookmark, save, quiz, errors.
 4. **Never colour alone** — Selected toggles use check + `aria-pressed`; status uses icon + text.
@@ -73,7 +73,7 @@ Study (per note)
 
 | Element | Intent |
 |---|---|
-| Round green **Start class** button | Single composition; fills the viewport between header and tab bar |
+| Round green **Start** button | Single composition; fills the viewport between header and tab bar |
 | Listening wave (inside button) | Visible only while voice recognition is live |
 | Soft ring when listening | Extra non-text status cue |
 | Hint under button | Changes with listening + shortcuts on/off |
@@ -100,7 +100,7 @@ Course (optional), notes language, quiz answer time (8 / 15 / 30 s), single-key 
 
 - Live header: red pulse + course name + mic level bars + “next text in Ns”
 - Quiet-mic warning names the Chrome device
-- Bookmark + End class as large side/stack buttons
+- Bookmark + Over as large side/stack buttons
 - Transcript updates every ~15s; silent chunks are not sent
 
 **Verdict:** Good feedback for a high-stakes flow. Countdown is visual-only (not in a live region) so screen readers are not flooded.
@@ -143,7 +143,7 @@ Timed spoken answers (user-chosen window), Done answering, heard-text + feedback
 | Primary blue | Brand, selected nav, secondary CTAs |
 | Accent green | Primary “go” actions (Start, Speak, Save) |
 | Highlight amber | Bookmark / caution banners |
-| Destructive red | End class / stop listening |
+| Destructive red | Over / stop listening |
 | Outfit | Display / headings |
 | Work Sans + Noto Sans Ethiopic | Body + Ge’ez script |
 
@@ -160,7 +160,7 @@ Timed spoken answers (user-chosen window), Done answering, heard-text + feedback
 
 | Channel | Examples |
 |---|---|
-| Voice | “start class”, “bookmark”, “end class”, “take a note”, “save note”, “flip”, “quiz me”, “flashcards”, “ask a question” |
+| Voice | “start”, “bookmark”, “over”, “take a note”, “save note”, “flip”, “quiz me”, “flashcards”, “ask a question” |
 | Touch | Large buttons; bottom tabs; flip card |
 | Keyboard | Space / Enter / arrows / letter shortcuts (optional, Settings) |
 
@@ -210,7 +210,7 @@ See full table in [accessibility-audit.md](./accessibility-audit.md).
 | P1 | Notebooks list can get long | Filter by subject; pin “My notes” |
 | P1 | Five study tabs on small phones | Consider “More” overflow after demo if cramped |
 | P1 | Docs still mention Next.js / Firebase | Align PDF with Vite + SQLite + Gemini for credibility |
-| P2 | No onboarding coach marks | One first-run spoken tour: “Say start class…” |
+| P2 | No onboarding coach marks | One first-run spoken tour: “Say start…” |
 | P2 | Favicon/tab brand is minimal | Already SVG pen mark; optional PWA icon set |
 | P2 | Design-system MASTER still lists light palette as default | Note that production defaults to OS theme (often dark) |
 
@@ -237,8 +237,8 @@ See full table in [accessibility-audit.md](./accessibility-audit.md).
 
 ## 12. Demo UI script (2 minutes)
 
-1. **Home** — point at round Start + Listening wave. Say “start class”.  
-2. **Recording** — talk 20s, say “bookmark”, show level bars, End class.  
+1. **Home** — point at round Start + Listening wave. Say “start”.  
+2. **Recording** — talk 20s, say “bookmark”, show level bars, say “over”.  
 3. **Notes** — exam hints + takeaways; tap a `#source`.  
 4. **Cards** — flip with Space; say “next”.  
 5. **Materials** — upload a one-page PDF; show “Connects to your lecture”.  

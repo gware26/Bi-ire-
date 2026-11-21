@@ -247,10 +247,10 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
             icon={Stop}
             onClick={finish}
             disabled={phase !== 'recording'}
-            hint='Say "end class" or press Enter'
+            hint='Say "over" or press Enter'
             className="flex-1"
           >
-            End class
+            Over
           </BigButton>
         </div>
       </div>

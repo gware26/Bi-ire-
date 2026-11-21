@@ -156,7 +156,7 @@ export function Notes({ note, initialFocus = null, extraCommands = {}, onQuiz, o
         <BigButton tone="highlight" icon={Question} onClick={startQuiz} hint='Say "quiz me" or press Q'>
           Quiz me
         </BigButton>
-        <BigButton tone="neutral" icon={Microphone} onClick={onNewClass} hint='Say "start class" or press N'>
+        <BigButton tone="neutral" icon={Microphone} onClick={onNewClass} hint='Say "start" or press N'>
           New class
         </BigButton>
       </div>
