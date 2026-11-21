@@ -7,8 +7,8 @@ import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
-// Shorter chunks = faster transcript backup if voice "over" is missed.
-const CHUNK_SEC = 6
+// Short chunks so saying "over" shows up in the transcript quickly.
+const CHUNK_SEC = 4
 // Loudest sample below this = nobody spoke in the chunk, so it is not sent.
 // Near-zero: send almost every chunk; quiet lecture mics often peak under 0.01.
 const SILENCE_PEAK = 0.001
@@ -19,6 +19,7 @@ interface Props {
   onFinished: (sessionId: number) => void
   onFailed: (message: string) => void
   onHome: () => void
+  registerFinish?: (fn: (() => void) | null) => void
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -40,7 +41,7 @@ function LevelWave({ level }: { level: number }) {
   )
 }
 
-export function Recording({ course, onFinished, onFailed, onHome }: Props) {
+export function Recording({ course, onFinished, onFailed, onHome, registerFinish }: Props) {
   const [phase, setPhase] = useState<'starting' | 'recording' | 'finishing'>('starting')
   const [segments, setSegments] = useState<Segment[]>([])
   const [bookmarks, setBookmarks] = useState<number[]>([])
@@ -160,6 +161,14 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
   }
 
   finishRef.current = finish
+
+  useEffect(() => {
+    registerFinish?.(() => {
+      void finishRef.current()
+    })
+    return () => registerFinish?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useControls(
     { bookmark: () => bookmark('voice'), stop: finish, home: onHome },

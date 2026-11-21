@@ -44,7 +44,7 @@ export function stopSpeaking() {
   if ('speechSynthesis' in window) speechSynthesis.cancel()
 }
 
-// ---------- Audio cues (so the student never has to look at the screen) ----------
+// ---------- Audio cues ----------
 
 let cueCtx: AudioContext | null = null
 
@@ -94,7 +94,23 @@ export type Command =
   | 'notebooks'
   | 'settings'
 
-/** Longer phrases first so short words do not steal them. */
+const STOP_WORDS = [
+  'over',
+  'ova',
+  'ober',
+  'ovar',
+  'ofer',
+  'ouver',
+  'rover',
+  'hover',
+  'owen',
+  'oval',
+  'avo',
+  'finish',
+  'finished',
+]
+const START_WORDS = ['start', 'started', 'starts', 'begin', 'begun', 'stark', 'stat', 'starr']
+
 const PHRASES: [Command, RegExp][] = [
   ['quiz', /\b(start (the )?quiz|quiz me|test me|give me (a |the )?quiz|quiz time)\b/],
   ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
@@ -117,13 +133,7 @@ const PHRASES: [Command, RegExp][] = [
   ['start', /\b(start|begin) (the )?(class|lecture|recording)\b/],
 ]
 
-/**
- * Single-word (and short) aliases, including common Chrome mishearings.
- * Checked with exact match first, then 1-edit fuzzy for short words.
- */
 const WORD_ALIASES: [Command, string[]][] = [
-  ['stop', ['over', 'ova', 'ober', 'ovar', 'ofer', 'ouver', 'rover', 'hover', 'owen', 'oval', 'avo', 'finish', 'finished']],
-  ['start', ['start', 'started', 'starts', 'begin', 'begun', 'stark', 'stat', 'starr']],
   ['quiz', ['quiz', 'quizzes', 'quis', 'quest', 'quests', 'quizzy']],
   ['bookmark', ['bookmark', 'bookmarks']],
   ['home', ['home']],
@@ -143,7 +153,6 @@ const WORD_ALIASES: [Command, string[]][] = [
 
 const FILLER = new Set(['um', 'uh', 'erm', 'ah', 'oh', 'okay', 'ok', 'please', 'hey', 'yeah', 'yes', 'the', 'a', 'my'])
 
-/** Strip punctuation Chrome adds so "start." and "Over!" still match. */
 export function cleanHeard(raw: string) {
   return raw
     .toLowerCase()
@@ -169,7 +178,6 @@ function editDistance(a: string, b: string): number {
   return row[b.length]!
 }
 
-/** True if word matches a target exactly or within 1 edit (for words 3+ letters). */
 function closeTo(word: string, targets: string[]): boolean {
   for (const t of targets) {
     if (word === t) return true
@@ -184,7 +192,6 @@ function contentWords(heard: string): string[] {
   return heard.split(' ').filter((w) => w && !FILLER.has(w))
 }
 
-/** True when the student said the short stop word (not lecture content like "over the years"). */
 export function looksLikeStop(raw: string) {
   const heard = cleanHeard(raw)
   if (!heard) return false
@@ -192,8 +199,8 @@ export function looksLikeStop(raw: string) {
   if (/\bsave (the |my )?note\b/.test(heard)) return true
   const words = contentWords(heard)
   if (words.length === 0 || words.length > 4) return false
-  const last = words[words.length - 1]!
-  return closeTo(last, WORD_ALIASES.find(([c]) => c === 'stop')![1])
+  // Last content word must be over (avoids "over the years" in lecture text)
+  return closeTo(words[words.length - 1]!, STOP_WORDS)
 }
 
 export function looksLikeStart(raw: string) {
@@ -202,22 +209,24 @@ export function looksLikeStart(raw: string) {
   if (/\b(start|begin) (the )?(class|lecture|recording)\b/.test(heard)) return true
   const words = contentWords(heard)
   if (words.length === 0 || words.length > 4) return false
-  return closeTo(words[words.length - 1]!, WORD_ALIASES.find(([c]) => c === 'start')![1])
+  return closeTo(words[words.length - 1]!, START_WORDS)
 }
 
 function matchShortCommand(heard: string): Command | null {
   const words = contentWords(heard)
-  if (words.length === 0 || words.length > 4) return null
+  if (words.length === 0 || words.length > 5) return null
   const last = words[words.length - 1]!
   const prev = words.length > 1 ? words[words.length - 2]! : ''
 
-  // "quiz me" / mishear + me
-  if (last === 'me' && closeTo(prev, WORD_ALIASES.find(([c]) => c === 'quiz')![1])) return 'quiz'
+  // start / over: accept if either of the last two content words matches
+  const tail2 = words.slice(-2)
+  if (tail2.some((w) => closeTo(w, STOP_WORDS))) return 'stop'
+  if (tail2.some((w) => closeTo(w, START_WORDS))) return 'start'
+
+  if (last === 'me' && closeTo(prev, ['quiz', 'quis', 'quest', 'quests'])) return 'quiz'
 
   for (const [cmd, aliases] of WORD_ALIASES) {
     if (closeTo(last, aliases)) return cmd
-    // whole short phrase is one alias token like "flashcards"
-    if (words.length === 1 && closeTo(words[0]!, aliases)) return cmd
   }
   return null
 }
@@ -227,17 +236,33 @@ export function matchCommand(raw: string): Command | null {
   if (!heard) return null
   const tail = heard.split(' ').slice(-5).join(' ')
   for (const [cmd, re] of PHRASES) {
+    if (cmd === 'start' || cmd === 'stop') continue // handled by short matcher with aliases
     if (re.test(heard) || re.test(tail)) return cmd
   }
-  return matchShortCommand(heard) ?? matchShortCommand(tail)
+  // Priority: start and over (including fuzzy aliases)
+  const short = matchShortCommand(heard) ?? matchShortCommand(tail)
+  if (short === 'start' || short === 'stop') return short
+  if (looksLikeStop(heard)) return 'stop'
+  if (looksLikeStart(heard)) return 'start'
+  return short
 }
 
 type Handler = (c: Command) => void
 let activeHandler: Handler | null = null
+/** App-level start/over (and optional others) — always tried before the screen handler. */
+let primaryHandler: Handler | null = null
 
-/** The currently visible screen registers what each command does. */
 export function setCommandHandler(h: Handler | null) {
   activeHandler = h
+}
+
+export function setPrimaryHandler(h: Handler | null) {
+  primaryHandler = h
+}
+
+function dispatchCommand(cmd: Command) {
+  primaryHandler?.(cmd)
+  activeHandler?.(cmd)
 }
 
 export function voiceCommandsSupported() {
@@ -245,7 +270,6 @@ export function voiceCommandsSupported() {
   return Boolean(w.SpeechRecognition || w.webkitSpeechRecognition)
 }
 
-/** Ask for mic access once — Chrome SpeechRecognition is unreliable until permission is granted. */
 export async function unlockMicrophone(): Promise<boolean> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -256,14 +280,17 @@ export async function unlockMicrophone(): Promise<boolean> {
   }
 }
 
+/**
+ * Short-utterance recognition loop (continuous=false).
+ * Chrome hears single words like "start" / "over" much more reliably this way.
+ */
 export class CommandListener {
   private rec: any = null
   private running = false
   private generation = 0
-  private fired = new Set<number>()
   private lastFire = 0
-  private lastShown = ''
   private lastCmd: Command | null = null
+  private lastShown = ''
 
   constructor(
     private onHeard: (cmd: Command | null, heard: string) => void,
@@ -275,7 +302,6 @@ export class CommandListener {
     return this.running
   }
 
-  /** Unlock mic (if needed) then start continuous recognition. Always tries to listen. */
   async enable() {
     const ok = await unlockMicrophone()
     if (!ok) {
@@ -320,11 +346,10 @@ export class CommandListener {
     const gen = ++this.generation
     const rec = new SR()
     this.rec = rec
-    this.fired.clear()
 
-    // en-US is most reliable for Chrome; still matches accented English via fuzzy aliases.
     rec.lang = 'en-US'
-    rec.continuous = true
+    // Non-continuous + rapid restart = much better short-word detection for start/over.
+    rec.continuous = false
     rec.interimResults = true
     rec.maxAlternatives = 5
 
@@ -334,19 +359,12 @@ export class CommandListener {
       this.onError('')
     }
 
-    rec.onaudiostart = () => {
-      if (gen !== this.generation) return
-      this.onListening(true)
-    }
-
     rec.onresult = (e: any) => {
       if (gen !== this.generation) return
       for (let i = e.resultIndex; i < e.results.length; i++) {
         let cmd: Command | null = null
         let heard = ''
-        const alts = e.results[i].length as number
-        // Score every alternative — quiet / accented speech often is not #1.
-        for (let a = 0; a < alts; a++) {
+        for (let a = 0; a < e.results[i].length; a++) {
           const t = e.results[i][a].transcript as string
           const hit = matchCommand(t)
           if (hit) {
@@ -359,53 +377,45 @@ export class CommandListener {
         const cleaned = cleanHeard(heard)
         if (!cleaned) continue
 
-        if (cleaned !== this.lastShown) {
+        if (cleaned !== this.lastShown || cmd) {
           this.lastShown = cleaned
-          this.onHeard(cmd, cleaned)
-        } else if (cmd) {
           this.onHeard(cmd, cleaned)
         }
 
         if (!cmd) continue
-        // Allow interim short commands (over / start / quiz) so we do not wait for silence.
-        const isFinal = e.results[i].isFinal as boolean
-        const short = cleaned.split(' ').length <= 3
+        const isFinal = Boolean(e.results[i].isFinal)
+        const short = cleaned.split(' ').length <= 4
         if (!isFinal && !short) continue
-        if (this.fired.has(i) && this.lastCmd === cmd) continue
-        if (Date.now() - this.lastFire < 700 && this.lastCmd === cmd) continue
+        if (Date.now() - this.lastFire < 800 && this.lastCmd === cmd) continue
 
-        this.fired.add(i)
         this.lastFire = Date.now()
         this.lastCmd = cmd
-        activeHandler?.(cmd)
+        dispatchCommand(cmd)
       }
     }
 
-    rec.onerror = (e: any) => {
+    rec.onerror = (ev: any) => {
       if (gen !== this.generation) return
-      const err = String(e.error || '')
+      const err = String(ev.error || '')
       if (err === 'not-allowed' || err === 'service-not-allowed') {
         this.running = false
         this.onListening(false)
         this.onError('Microphone blocked. Allow the mic in the address bar.')
         return
       }
-      if (err === 'network') {
-        this.onError('Speech service offline. Check your internet.')
-      }
-      // audio-capture: recorder may own the mic briefly — onend will retry.
+      if (err === 'network') this.onError('Speech service offline. Check your internet.')
     }
 
     rec.onend = () => {
       if (gen !== this.generation) return
-      this.fired.clear()
       if (!this.running) {
         this.onListening(false)
         return
       }
+      // Immediate restart for the next short phrase
       setTimeout(() => {
         if (this.running && gen === this.generation) this.spawn()
-      }, 200)
+      }, 60)
     }
 
     try {
@@ -413,7 +423,7 @@ export class CommandListener {
     } catch {
       setTimeout(() => {
         if (this.running && gen === this.generation) this.spawn()
-      }, 350)
+      }, 250)
     }
   }
 }

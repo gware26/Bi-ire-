@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowClockwise, ArrowLeft, Ear, Microphone, MicrophoneSlash, PenNib, Warning } from '@phosphor-icons/react'
 import { api, type Lang, type Note } from './lib/api'
 import { SHORTCUTS_KEY, useStoredState } from './lib/hooks'
 import { announce } from './lib/announce'
-import { CommandListener, cues, speak, voiceCommandsSupported } from './lib/voice'
+import { CommandListener, cues, setPrimaryHandler, speak, voiceCommandsSupported } from './lib/voice'
 import { BigButton } from './components/BigButton'
 import { Home } from './screens/Home'
 import { Recording } from './screens/Recording'
@@ -31,6 +31,9 @@ export default function App() {
   const [heard, setHeard] = useState('')
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState('')
+  const screenRef = useRef(screen)
+  const finishRef = useRef<(() => void) | null>(null)
+  screenRef.current = screen
 
   useEffect(() => {
     const titles: Record<Screen['name'], string> = {
@@ -57,10 +60,20 @@ export default function App() {
       setVoiceError,
     )
     ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice = listener
-    // Voice on by default as soon as the app loads.
     void listener.enable()
 
+    // start / over always handled here — do not depend on the visible screen's useControls.
+    setPrimaryHandler((cmd) => {
+      if (cmd === 'start' && screenRef.current.name === 'home') {
+        setScreen({ name: 'recording', key: Date.now() })
+      }
+      if (cmd === 'stop') {
+        finishRef.current?.()
+      }
+    })
+
     return () => {
+      setPrimaryHandler(null)
       delete (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
       listener.stop()
     }
@@ -69,9 +82,14 @@ export default function App() {
   useEffect(() => {
     const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
     if (!voice) return
-    // Keep listening on every screen (including recording) so "over" / "bookmark" still work.
-    // If the recorder briefly steals the mic, CommandListener restarts itself.
-    if (!voice.isRunning) void voice.enable()
+    // While recording, the lecture mic owns the device — pause commands.
+    // "over" is still caught from the live transcript (and Enter).
+    if (screen.name === 'recording' || screen.name === 'speak') {
+      voice.stop()
+      setListening(false)
+    } else {
+      void voice.enable()
+    }
   }, [screen])
 
   useEffect(() => {
@@ -82,6 +100,9 @@ export default function App() {
 
   const startClass = () => setScreen({ name: 'recording', key: Date.now() })
   const startSpeakNote = () => setScreen({ name: 'speak', key: Date.now() })
+  const registerFinish = (fn: (() => void) | null) => {
+    finishRef.current = fn
+  }
 
   async function buildNotes(sessionId: number, mode: 'lecture' | 'dictation' = 'lecture') {
     setScreen({ name: 'processing', sessionId, mode })
@@ -188,6 +209,7 @@ export default function App() {
           onFinished={(id) => buildNotes(id, 'lecture')}
           onFailed={(message) => setScreen({ name: 'error', message })}
           onHome={() => setScreen({ name: 'home' })}
+          registerFinish={registerFinish}
         />
       )}
 
@@ -198,6 +220,7 @@ export default function App() {
           onFinished={(id) => buildNotes(id, 'dictation')}
           onFailed={(message) => setScreen({ name: 'error', message })}
           onHome={() => setScreen({ name: 'home' })}
+          registerFinish={registerFinish}
         />
       )}
 

@@ -101,7 +101,7 @@ export function Home(props: Props) {
 
   useControls(
     {
-      start: onStart,
+      // "start" is handled globally in App (setPrimaryHandler) so it always fires.
       speaknote: () => {
         setTab('notebooks')
         onSpeakNote()

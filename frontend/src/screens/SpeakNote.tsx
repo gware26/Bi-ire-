@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { FloppyDisk, MicrophoneSlash, Warning } from '@phosphor-icons/react'
 import { api, type Segment } from '../lib/api'
 import { ChunkRecorder } from '../lib/recorder'
@@ -7,7 +7,7 @@ import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
-const CHUNK_SEC = 8
+const CHUNK_SEC = 4
 const SILENCE_PEAK = 0.001
 const QUIET_WARN_SEC = 6
 
@@ -16,6 +16,7 @@ interface Props {
   onFinished: (sessionId: number) => void
   onFailed: (message: string) => void
   onHome: () => void
+  registerFinish?: (fn: (() => void) | null) => void
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -38,7 +39,7 @@ function LevelWave({ level }: { level: number }) {
 }
 
 /** Hands-free personal notebook: speak, then save a structured note into Notebooks. */
-export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
+export function SpeakNote({ course, onFinished, onFailed, onHome, registerFinish }: Props) {
   const [phase, setPhase] = useState<'starting' | 'recording' | 'finishing'>('starting')
   const [segments, setSegments] = useState<Segment[]>([])
   const [elapsed, setElapsed] = useState(0)
@@ -77,6 +78,14 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
   }
 
   saveRef.current = save
+
+  useEffect(() => {
+    registerFinish?.(() => {
+      void saveRef.current()
+    })
+    return () => registerFinish?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (started.current) return
