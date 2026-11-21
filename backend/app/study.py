@@ -5,7 +5,7 @@ import base64
 import json
 
 from . import config, demo
-from .ai import _audio_part, _gemini, _lang
+from .ai import _gemini, _lang, transcribe
 
 # Gemini reads these directly; Office files must be saved as PDF first.
 SUPPORTED_MIME = {
@@ -79,7 +79,9 @@ Keep each item short enough to read aloud in under 15 seconds.
 
 {_lecture_text(note)}
 """
-    return await _gemini([{"text": prompt}, *_material_parts([material])], LINK_SCHEMA)
+    return await _gemini(
+        [{"text": prompt}, *_material_parts([material])], LINK_SCHEMA, out_lang=note.get("out_lang", "en")
+    )
 
 
 FLASHCARD_SCHEMA = {
@@ -117,7 +119,9 @@ Keep English technical terms in English.
 
 {_lecture_text(note)}
 """
-    result = await _gemini([{"text": prompt}, *_material_parts(materials)], FLASHCARD_SCHEMA, temperature=0.4)
+    result = await _gemini(
+        [{"text": prompt}, *_material_parts(materials)], FLASHCARD_SCHEMA, temperature=0.4, out_lang=note.get("out_lang", "en")
+    )
     return result["cards"][:count]
 
 
@@ -157,7 +161,9 @@ The student has about {minutes} minutes per day and a motor disability: they stu
 
 {_lecture_text(note)}
 """
-    return await _gemini([{"text": prompt}, *_material_parts(materials)], PLAN_SCHEMA, temperature=0.3)
+    return await _gemini(
+        [{"text": prompt}, *_material_parts(materials)], PLAN_SCHEMA, temperature=0.3, out_lang=note.get("out_lang", "en")
+    )
 
 
 CHAT_SCHEMA = {
@@ -183,7 +189,11 @@ async def chat(
     if config.DEMO_MODE:
         return demo.chat(question)
     past = "\n".join(f"{'Student' if h['role'] == 'user' else 'Tutor'}: {h['text']}" for h in history[-8:])
-    asked = "The student's question is in the attached audio." if audio else f"Student's question: {question}"
+    if audio:
+        heard = await transcribe(audio, mime)
+        asked = f"Student's question: {heard.get('text') or '(silence)'}"
+    else:
+        asked = f"Student's question: {question}"
     prompt = f"""You are a patient study tutor for a university student with a motor disability.
 Answer questions about the lecture below and the student's materials. Your answer will be read aloud.
 
@@ -204,6 +214,4 @@ Conversation so far:
 {asked}
 """
     parts = [{"text": prompt}, *_material_parts(materials)]
-    if audio:
-        parts.append(_audio_part(audio, mime))
-    return await _gemini(parts, CHAT_SCHEMA, temperature=0.3)
+    return await _gemini(parts, CHAT_SCHEMA, temperature=0.3, out_lang=note.get("out_lang", "en"))

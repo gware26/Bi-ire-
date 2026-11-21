@@ -39,7 +39,7 @@ def word_match(reference: str, heard: str) -> float:
 
 async def main(paths: list[str]) -> None:
     if config.DEMO_MODE:
-        sys.exit("No GEMINI_API_KEY in backend/.env (or DEMO_MODE=1). Add a key to run the real test.")
+        sys.exit("No ADDIS_API_KEY in backend/.env (or DEMO_MODE=1). Add a key to run the real test.")
     for p in map(Path, paths):
         mime = MIME.get(p.suffix.lower())
         if mime is None:

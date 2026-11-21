@@ -1,40 +1,30 @@
-"""All model calls (speech-to-text, note structuring, quiz) go through Gemini.
+"""All model calls go through Addis AI: Scribe for speech-to-text, Aleph for notes/quiz/chat.
 
-In demo mode every function returns scripted data from `demo.py`, so the full
-flow works on stage even with no network or API key.
+In demo mode every function returns scripted data from `demo.py`.
 """
 
 import asyncio
 import base64
 import json
+import re
 import ssl
 import time
+import uuid
 
 import httpx
 import truststore
 
 from . import config, demo
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
 # Use the OS certificate store so school/venue networks that inspect HTTPS still verify.
 SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
-RETRYABLE_STATUS = {404, 429, 500, 502, 503, 504}
-
-# model -> monotonic time when its quota should be back; skipped until then.
+SCRIBE_URL = "/api/v1/scribe/transcribe"
+CHAT_URL = "/api/v1/chat_generate"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+GEMINI_RETRYABLE = {404, 429, 500, 502, 503, 504}
 _exhausted_until: dict[str, float] = {}
-
-
-def _retry_delay(r: httpx.Response) -> float:
-    """Seconds until a 429'd model is worth retrying (Google's retryDelay, else 60s)."""
-    try:
-        for d in r.json()["error"].get("details", []):
-            if "retryDelay" in d:
-                return float(d["retryDelay"].rstrip("s"))
-    except (ValueError, KeyError, TypeError):
-        pass
-    return 60.0
 
 
 class AIError(RuntimeError):
@@ -45,29 +35,157 @@ def _lang(code: str) -> str:
     return config.LANGS.get(code, "English")
 
 
+def _headers() -> dict:
+    return {"x-api-key": config.ADDIS_API_KEY}
+
+
 def _audio_part(audio: bytes, mime: str) -> dict:
-    return {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}}
+    return {"audio": audio, "mime_type": mime}
 
 
-async def _post_with_reconnect(client: httpx.AsyncClient, model: str, body: dict) -> httpx.Response:
-    """Posts once more after a short pause if the connection drops (flaky venue Wi-Fi)."""
-    for attempt in range(2):
+def _ext(mime: str) -> str:
+    if "wav" in mime:
+        return "wav"
+    if "mpeg" in mime or "mp3" in mime:
+        return "mp3"
+    if "webm" in mime:
+        return "webm"
+    if "ogg" in mime:
+        return "ogg"
+    return "wav"
+
+
+def _parse_json(raw: str) -> dict:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start >= 0 and end > start:
+        text = text[start : end + 1]
+    return json.loads(text)
+
+
+def _chat_text(data: dict) -> str:
+    if not isinstance(data, dict):
+        return str(data)
+    if data.get("response_text"):
+        return str(data["response_text"])
+    inner = data.get("data")
+    if isinstance(inner, dict) and inner.get("response_text"):
+        return str(inner["response_text"])
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        pass
+    if isinstance(data.get("text"), str):
+        return data["text"]
+    raise AIError(f"Unexpected Addis chat response: {str(data)[:300]}")
+
+
+async def _post_json(path: str, body: dict) -> httpx.Response:
+    url = f"{config.ADDIS_BASE}{path}"
+    last_err = "Addis AI request failed"
+    async with httpx.AsyncClient(timeout=config.ADDIS_TIMEOUT, verify=SSL_CONTEXT) as client:
+        for attempt in range(3):
+            try:
+                r = await client.post(url, headers=_headers(), json=body)
+            except httpx.ConnectError as e:
+                raise AIError("No internet connection to Addis AI. Check the Wi-Fi and try again.") from e
+            except httpx.HTTPError as e:
+                last_err = type(e).__name__
+                await asyncio.sleep(1.5 * (attempt + 1))
+                continue
+            if r.status_code == 200:
+                return r
+            last_err = f"{r.status_code}: {r.text[:240]}"
+            if r.status_code == 402:
+                raise AIError(
+                    "Addis AI wallet is empty. Top up at https://addisassistant.com then try again."
+                )
+            if r.status_code not in RETRYABLE_STATUS:
+                raise AIError(f"Addis AI error {last_err}")
+            wait = float(r.headers.get("Retry-After") or 1.5 * (attempt + 1))
+            await asyncio.sleep(min(wait, 8))
+    raise AIError(f"Addis AI unavailable ({last_err})")
+
+
+async def _scribe(audio: bytes, mime: str, language: str) -> str:
+    """Transcribe one clip with Addis Scribe. Empty string = silence / no speech."""
+    url = f"{config.ADDIS_BASE}{SCRIBE_URL}"
+    params = {
+        "backend": "turbo",
+        "language": language,
+        "request_id": uuid.uuid4().hex,
+    }
+    files = {"audio": (f"chunk.{_ext(mime)}", audio, mime or "audio/wav")}
+    async with httpx.AsyncClient(timeout=config.ADDIS_TIMEOUT, verify=SSL_CONTEXT) as client:
         try:
-            return await client.post(
-                GEMINI_URL.format(model=model),
-                headers={"x-goog-api-key": config.GEMINI_API_KEY},
-                json=body,
+            r = await client.post(url, headers=_headers(), params=params, files=files)
+        except httpx.ConnectError as e:
+            raise AIError("No internet connection to Addis AI. Check the Wi-Fi and try again.") from e
+        except httpx.HTTPError as e:
+            raise AIError(f"Addis Scribe failed: {type(e).__name__}") from e
+    if r.status_code == 202:
+        # Long job — our chunks are short; treat as empty rather than blocking.
+        return ""
+    if r.status_code == 402:
+        raise AIError("Addis AI wallet is empty. Top up at https://addisassistant.com then try again.")
+    if r.status_code != 200:
+        raise AIError(f"Addis Scribe error {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    payload = data.get("data", data)
+    if isinstance(payload, dict):
+        return str(payload.get("text") or "").strip()
+    return str(data.get("text") or "").strip()
+
+
+def _flatten_parts(parts: list[dict]) -> str:
+    chunks = []
+    for p in parts:
+        if p.get("text"):
+            chunks.append(p["text"])
+        elif p.get("audio"):
+            chunks.append("[audio attached — transcribe it from the separate speech-to-text step]")
+        elif p.get("inline_data"):
+            chunks.append("[file attached]")
+    return "\n".join(chunks)
+
+
+def _parts_for_gemini(parts: list[dict]) -> list[dict]:
+    out = []
+    for p in parts:
+        if p.get("text"):
+            out.append({"text": p["text"]})
+        elif p.get("audio"):
+            out.append(
+                {
+                    "inline_data": {
+                        "mime_type": p.get("mime_type") or "audio/wav",
+                        "data": base64.b64encode(p["audio"]).decode(),
+                    }
+                }
             )
-        except httpx.ConnectError:
-            if attempt:
-                raise
-            await asyncio.sleep(2)
-    raise AssertionError("unreachable")
+        elif p.get("inline_data"):
+            out.append({"inline_data": p["inline_data"]})
+    return out
 
 
-async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> dict:
+def _retry_delay(r: httpx.Response) -> float:
+    try:
+        for d in r.json()["error"].get("details", []):
+            if "retryDelay" in d:
+                return float(d["retryDelay"].rstrip("s"))
+    except (ValueError, KeyError, TypeError):
+        pass
+    return 60.0
+
+
+async def _gemini_complete(parts: list[dict], schema: dict, temperature: float = 0.2) -> dict:
+    if not config.GEMINI_API_KEY:
+        raise AIError("No Gemini API key set for fallback.")
     body = {
-        "contents": [{"role": "user", "parts": parts}],
+        "contents": [{"role": "user", "parts": _parts_for_gemini(parts)}],
         "generationConfig": {
             "temperature": temperature,
             "responseMimeType": "application/json",
@@ -78,15 +196,19 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
     now = time.monotonic()
     ready = [m for m in models if _exhausted_until.get(m, 0) <= now]
     if not ready:
-        raise AIError("All Gemini models are over their free-tier quota. Try later or use demo mode.")
+        raise AIError("Gemini fallback is over quota. Try later.")
     errors = []
+    r = None
     async with httpx.AsyncClient(timeout=config.GEMINI_TIMEOUT, verify=SSL_CONTEXT) as client:
         for model in ready:
             try:
-                r = await _post_with_reconnect(client, model, body)
+                r = await client.post(
+                    GEMINI_URL.format(model=model),
+                    headers={"x-goog-api-key": config.GEMINI_API_KEY},
+                    json=body,
+                )
             except httpx.ConnectError as e:
-                # No route to Google at all: every other model would fail the same way.
-                raise AIError("No internet connection to Google Gemini. Check the Wi-Fi and try again.") from e
+                raise AIError("No internet connection to Gemini. Check the Wi-Fi and try again.") from e
             except httpx.HTTPError as e:
                 errors.append(f"{model}: {type(e).__name__}")
                 continue
@@ -95,7 +217,7 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
             errors.append(f"{model}: {r.status_code}")
             if r.status_code == 429:
                 _exhausted_until[model] = time.monotonic() + _retry_delay(r)
-            if r.status_code not in RETRYABLE_STATUS:
+            if r.status_code not in GEMINI_RETRYABLE:
                 raise AIError(f"Gemini error {r.status_code}: {r.text[:300]}")
         else:
             raise AIError("Gemini unavailable (" + "; ".join(errors) + ")")
@@ -107,18 +229,64 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
         raise AIError(f"Unexpected Gemini response: {str(data)[:300]}") from e
 
 
-TRANSCRIBE_PROMPT = """You are transcribing a short chunk of a university lecture recorded in Ethiopia.
-The lecturer may switch between English, Amharic and Afaan Oromo, even inside one sentence.
-The microphone is often quiet, distant, or low-volume — listen carefully for soft speech.
+async def _addis_complete(parts: list[dict], schema: dict, temperature: float, out_lang: str) -> dict:
+    prompt = (
+        _flatten_parts(parts)
+        + "\n\nReturn ONLY valid JSON. No markdown. Match this schema:\n"
+        + json.dumps(schema)
+    )
+    target = out_lang if out_lang in {"en", "am", "om", "ti"} else "en"
+    body = {
+        "prompt": prompt,
+        "target_language": target,
+        "generation_config": {"temperature": temperature, "maxOutputTokens": 2048},
+    }
+    r = await _post_json(CHAT_URL, body)
+    try:
+        return _parse_json(_chat_text(r.json()))
+    except (json.JSONDecodeError, AIError) as e:
+        raise AIError(f"Addis AI returned non-JSON: {r.text[:300]}") from e
 
-Rules:
-- Transcribe exactly what is said. Do not translate, summarise or correct.
-- Write Amharic in Ge'ez (Ethiopic) script, Afaan Oromo in Latin script (Qubee), English in Latin script.
-- Keep English technical terms in English.
-- Prefer transcribing quiet or low speech when words are audible, even if soft or muffled.
-- If the audio is truly silent, only background noise, music or completely unintelligible, return an empty "text".
-- Never invent, guess or complete speech. Only write words you actually hear; an empty "text" is better than made-up words.
-- "languages": the codes actually spoken, chosen from: en, am, om.
+
+async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2, out_lang: str = "en") -> dict:
+    """Addis-Aleph first; Gemini if Addis fails. Name kept so study.py can keep importing it."""
+    addis_err = None
+    if config.ADDIS_API_KEY:
+        try:
+            return await _addis_complete(parts, schema, temperature, out_lang)
+        except AIError as e:
+            addis_err = e
+    if config.GEMINI_API_KEY:
+        return await _gemini_complete(parts, schema, temperature)
+    if addis_err:
+        raise addis_err
+    raise AIError("No Addis or Gemini API key is set.")
+
+
+# Ethiopic / Ge'ez — real Amharic transcripts must contain these.
+_GEEZ_RE = re.compile(r"[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF]")
+
+
+def _normalize_transcript(text: str, lang: str) -> dict:
+    text = (text or "").strip()
+    if not text:
+        return {"text": "", "languages": []}
+    has_geez = bool(_GEEZ_RE.search(text))
+    if has_geez:
+        langs = ["am"]
+        if lang == "en":
+            langs.insert(0, "en")
+    elif lang in {"am", "om", "en"}:
+        langs = [lang]
+    else:
+        langs = ["en"]
+    return {"text": text, "languages": langs}
+
+
+TRANSCRIBE_PROMPT = """You are transcribing a short chunk of a university lecture recorded in Ethiopia.
+Default language is English. Only mark Amharic or Afaan Oromo when you clearly hear them.
+Transcribe exactly what is said. Do not invent speech. Empty text if silent.
+"languages": codes actually spoken: en, am, om. English only → ["en"].
 """
 
 TRANSCRIBE_SCHEMA = {
@@ -131,13 +299,48 @@ TRANSCRIBE_SCHEMA = {
 }
 
 
+async def _transcribe_gemini(audio: bytes, mime: str, previous_text: str = "") -> dict:
+    prompt = TRANSCRIBE_PROMPT
+    if previous_text:
+        prompt += f'\nPrevious chunk ended with: "{previous_text[-300:]}" (context only).'
+    result = await _gemini_complete(
+        [{"text": prompt}, {"audio": audio, "mime_type": mime or "audio/wav"}],
+        TRANSCRIBE_SCHEMA,
+        temperature=0,
+    )
+    text = (result.get("text") or "").strip()
+    lang = "am" if _GEEZ_RE.search(text) else "en"
+    claimed = result.get("languages") or []
+    if "om" in claimed and not _GEEZ_RE.search(text):
+        lang = "om" if "en" not in claimed else "en"
+    return _normalize_transcript(text, lang)
+
+
 async def transcribe(audio: bytes, mime: str, previous_text: str = "", seq: int = 0) -> dict:
     if config.DEMO_MODE:
         return demo.transcribe(seq)
-    prompt = TRANSCRIBE_PROMPT
-    if previous_text:
-        prompt += f'\nThe previous chunk ended with: "{previous_text[-300:]}" (context only, do not repeat it).'
-    return await _gemini([{"text": prompt}, _audio_part(audio, mime)], TRANSCRIBE_SCHEMA, temperature=0)
+    addis_err = None
+    if config.ADDIS_API_KEY:
+        primary = config.ADDIS_STT_LANG if config.ADDIS_STT_LANG in {"en", "am", "om"} else "en"
+        if previous_text and _GEEZ_RE.search(previous_text):
+            order = ["am", "en", "om"]
+        else:
+            order = [primary, *(c for c in ("en", "am", "om") if c != primary)]
+        for lang in order:
+            try:
+                text = await _scribe(audio, mime, lang)
+            except AIError as e:
+                addis_err = e
+                break
+            if text:
+                return _normalize_transcript(text, lang)
+        else:
+            return {"text": "", "languages": []}
+    if config.GEMINI_API_KEY:
+        return await _transcribe_gemini(audio, mime, previous_text)
+    if addis_err:
+        raise addis_err
+    raise AIError("No Addis or Gemini API key is set.")
 
 
 _ITEM = {
@@ -243,7 +446,7 @@ Rules:
 Transcript:
 {lines}
 """
-    return await _gemini([{"text": prompt}], NOTES_SCHEMA)
+    return await _gemini([{"text": prompt}], NOTES_SCHEMA, out_lang=out_lang)
 
 
 QUIZ_SCHEMA = {
@@ -272,7 +475,7 @@ Prefer exam hints and definitions.
 Notes (JSON):
 {json.dumps(note, ensure_ascii=False)}
 """
-    result = await _gemini([{"text": prompt}], QUIZ_SCHEMA, temperature=0.4)
+    result = await _gemini([{"text": prompt}], QUIZ_SCHEMA, temperature=0.4, out_lang=out_lang)
     return result["questions"][:count]
 
 
@@ -290,12 +493,17 @@ GRADE_SCHEMA = {
 async def grade_spoken_answer(audio: bytes, mime: str, question: str, expected: str, out_lang: str) -> dict:
     if config.DEMO_MODE:
         return demo.grade(expected)
-    prompt = f"""A student answered a quiz question out loud. The audio is attached.
-1. "heard": transcribe the student's answer exactly (they may mix English, Amharic and Afaan Oromo).
+    heard = await transcribe(audio, mime)
+    prompt = f"""A student answered a quiz question out loud.
+1. "heard": the student's answer as text (already transcribed below).
 2. "correct": true if the meaning matches the expected answer. Be lenient with wording, grammar and accent.
 3. "feedback": one or two encouraging sentences in {_lang(out_lang)}. If wrong or silent, give the correct answer.
 
 Question: {question}
 Expected answer: {expected}
+Student said: {heard.get("text") or "(silence)"}
 """
-    return await _gemini([{"text": prompt}, _audio_part(audio, mime)], GRADE_SCHEMA)
+    result = await _gemini([{"text": prompt}], GRADE_SCHEMA, out_lang=out_lang)
+    if not result.get("heard"):
+        result["heard"] = heard.get("text") or ""
+    return result

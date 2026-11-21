@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookmarkSimple, MicrophoneSlash, Stop, Warning } from '@phosphor-icons/react'
+import { MicrophoneSlash, Stop, Warning } from '@phosphor-icons/react'
 import { api, type Segment } from '../lib/api'
 import { ChunkRecorder } from '../lib/recorder'
 import { useControls } from '../lib/hooks'
@@ -44,7 +44,6 @@ function LevelWave({ level }: { level: number }) {
 export function Recording({ course, onFinished, onFailed, onHome, registerFinish }: Props) {
   const [phase, setPhase] = useState<'starting' | 'recording' | 'finishing'>('starting')
   const [segments, setSegments] = useState<Segment[]>([])
-  const [bookmarks, setBookmarks] = useState<number[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [level, setLevel] = useState(0)
   const [quiet, setQuiet] = useState(false)
@@ -132,15 +131,6 @@ export function Recording({ course, onFinished, onFailed, onHome, registerFinish
     if (quiet) announce('The microphone cannot hear anything')
   }, [quiet])
 
-  function bookmark(trigger = 'tap') {
-    if (phase !== 'recording' || !recorder.current) return
-    const at = recorder.current.elapsedSec()
-    cues.bookmark()
-    announce(`Bookmark saved at ${fmt(at)}`)
-    setBookmarks((b) => [...b, at])
-    api.bookmark(sessionId.current, at, trigger).catch((e: Error) => setChunkError(e.message))
-  }
-
   async function finish() {
     if (phase !== 'recording' || !recorder.current) return
     setPhase('finishing')
@@ -170,10 +160,7 @@ export function Recording({ course, onFinished, onFailed, onHome, registerFinish
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useControls(
-    { bookmark: () => bookmark('voice'), stop: finish, home: onHome },
-    { Space: () => bookmark('key'), b: () => bookmark('key'), Enter: finish, Escape: finish },
-  )
+  useControls({ stop: finish, home: onHome }, { Enter: finish, Escape: finish, Space: finish })
 
   const nextIn = Math.max(1, Math.ceil(CHUNK_SEC - (elapsed % CHUNK_SEC)))
 
@@ -250,22 +237,12 @@ export function Recording({ course, onFinished, onFailed, onHome, registerFinish
 
         <div className="flex flex-col gap-4">
           <BigButton
-            tone="highlight"
-            icon={BookmarkSimple}
-            onClick={() => bookmark()}
-            disabled={phase !== 'recording'}
-            hint={`Say "bookmark" or press Space - ${bookmarks.length} saved`}
-            className="flex-[2]"
-          >
-            Bookmark
-          </BigButton>
-          <BigButton
             tone="destructive"
             icon={Stop}
             onClick={finish}
             disabled={phase !== 'recording'}
             hint='Say "over" or press Enter'
-            className="flex-1"
+            className="min-h-[30vh] flex-1"
           >
             Over
           </BigButton>
