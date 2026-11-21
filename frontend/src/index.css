@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/work-sans';
+@import '@fontsource-variable/noto-sans-ethiopic';
+
+/* Design system: design-system/lissannote/MASTER.md (Minimalism & Swiss Style).
+   Every foreground/background pair below is >= 4.5:1; Noto Sans Ethiopic covers Ge'ez script. */
+:root {
+  --ln-background: #eff6ff;
+  --ln-foreground: #1e3a8a;
+  --ln-card: #ffffff;
+  --ln-card-foreground: #1e3a8a;
+  --ln-muted: #e9eff5;
+  --ln-muted-foreground: #475569;
+  --ln-border: #bfdbfe;
+  --ln-primary: #1e40af;
+  --ln-on-primary: #ffffff;
+  --ln-accent: #16a34a;
+  --ln-on-accent: #000000;
+  --ln-highlight: #f59e0b;
+  --ln-on-highlight: #000000;
+  --ln-destructive: #dc2626;
+  --ln-on-destructive: #ffffff;
+  --ln-ring: #1e40af;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ln-background: #0b1220;
+    --ln-foreground: #e6eeff;
+    --ln-card: #111a2e;
+    --ln-card-foreground: #e6eeff;
+    --ln-muted: #1a2540;
+    --ln-muted-foreground: #a9b6cc;
+    --ln-border: #2a3a5c;
+    --ln-primary: #60a5fa;
+    --ln-on-primary: #0b1220;
+    --ln-accent: #22c55e;
+    --ln-on-accent: #000000;
+    --ln-highlight: #fbbf24;
+    --ln-on-highlight: #000000;
+    --ln-destructive: #f87171;
+    --ln-on-destructive: #0b1220;
+    --ln-ring: #93c5fd;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-background: var(--ln-background);
+  --color-foreground: var(--ln-foreground);
+  --color-card: var(--ln-card);
+  --color-card-foreground: var(--ln-card-foreground);
+  --color-muted: var(--ln-muted);
+  --color-muted-foreground: var(--ln-muted-foreground);
+  --color-border: var(--ln-border);
+  --color-primary: var(--ln-primary);
+  --color-on-primary: var(--ln-on-primary);
+  --color-accent: var(--ln-accent);
+  --color-on-accent: var(--ln-on-accent);
+  --color-highlight: var(--ln-highlight);
+  --color-on-highlight: var(--ln-on-highlight);
+  --color-destructive: var(--ln-destructive);
+  --color-on-destructive: var(--ln-on-destructive);
+  --color-ring: var(--ln-ring);
+
+  --font-sans: 'Work Sans Variable', 'Noto Sans Ethiopic Variable', 'Nyala', system-ui, sans-serif;
+  --font-display: 'Outfit Variable', 'Noto Sans Ethiopic Variable', 'Nyala', system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    scroll-behavior: smooth;
+    scroll-padding-top: 1.5rem;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  button,
+  a,
+  [role='button'] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 4px solid var(--color-ring);
+    outline-offset: 4px;
+  }
+
+  /* Screen containers receive focus only so screen readers start at the new screen. */
+  main[tabindex='-1']:focus {
+    outline: none;
+  }
+
+  /* Transcript parts are focused when a note's source link is followed. */
+  p[tabindex='-1']:focus {
+    outline: 4px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
