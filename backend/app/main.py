@@ -14,7 +14,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="LissanNote API", lifespan=lifespan)
+app = FastAPI(title="Biʼire API", lifespan=lifespan)
 
 
 class SessionIn(BaseModel):

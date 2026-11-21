@@ -1,4 +1,4 @@
-# LissanNote accessibility audit (WCAG 2.2 AA)
+# ብዕሬ (Biʼire) accessibility audit (WCAG 2.2 AA)
 
 Date: 2026-11-21 · Target: WCAG 2.2 AA (AAA where cheap) · Method: axe-core automated scan
 (`wcag2a`, `wcag2aa`, `wcag21a/aa`, `wcag22aa`, `best-practice`) plus manual code and keyboard review.
@@ -26,7 +26,7 @@ No horizontal scrolling at a 320px viewport (WCAG 1.4.10).
 | 6 | Source links (#3) pointed into a collapsed transcript and did nothing | 2.4.3 Focus Order (A) | Major | Link expands the transcript, scrolls to the line and moves focus to it |
 | 7 | Amharic and Afaan Oromo content not marked with its language | 3.1.2 Language of Parts (AA) | Major | `lang` on notes content, quiz text, language buttons and single-language transcript lines |
 | 8 | Home had no `<h1>`; Recording, Quiz, Processing and Error used styled text instead of headings | 1.3.1 Info and Relationships (A) | Moderate | One `<h1>` per screen |
-| 9 | Page title never changed between screens | 2.4.2 Page Titled (A) | Moderate | Title per screen, e.g. "Quiz · LissanNote" |
+| 9 | Page title never changed between screens | 2.4.2 Page Titled (A) | Moderate | Title per screen, e.g. "Quiz · Biʼire" |
 | 10 | No skip link | 2.4.1 Bypass Blocks (A) | Minor | "Skip to main content" as the first focusable element; focus moves to the new screen on navigation |
 | 11 | Selected language / setting shown by colour only | 1.4.1 Use of Color (A) | Minor | Check icon plus `aria-pressed` |
 | 12 | Language buttons and the Start button overflowed at 320px | 1.4.10 Reflow (AA) | Minor | Responsive sizes; `min-w-0` on fieldsets and inputs |

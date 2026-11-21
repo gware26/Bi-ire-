@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowClockwise, ArrowLeft, Ear, Microphone, MicrophoneSlash, Warning, Waveform } from '@phosphor-icons/react'
+import { ArrowClockwise, ArrowLeft, Ear, Microphone, MicrophoneSlash, PenNib, Warning } from '@phosphor-icons/react'
 import { api, type Lang, type Note } from './lib/api'
 import { SHORTCUTS_KEY, useStoredState } from './lib/hooks'
 import { announce } from './lib/announce'
@@ -27,6 +27,7 @@ export default function App() {
   const [shortcuts, setShortcuts] = useStoredState(SHORTCUTS_KEY, true)
   const [demoMode, setDemoMode] = useState<boolean | null>(null)
   const [heard, setHeard] = useState('')
+  const [listening, setListening] = useState(false)
 
   useEffect(() => {
     const titles: Record<Screen['name'], string> = {
@@ -37,7 +38,7 @@ export default function App() {
       quiz: 'Quiz',
       error: 'Error',
     }
-    document.title = `${titles[screen.name]} · LissanNote`
+    document.title = `${titles[screen.name]} · Biʼire`
     if (screen.name !== 'home') document.getElementById('main')?.focus({ preventScroll: true })
   }, [screen, note])
 
@@ -46,7 +47,7 @@ export default function App() {
     const listener = new CommandListener((_, text) => {
       setHeard(text)
       announce(`Heard: ${text}`)
-    })
+    }, setListening)
     listener.start()
     return () => listener.stop()
   }, [])
@@ -95,22 +96,21 @@ export default function App() {
       </a>
       <header className="flex flex-wrap items-center justify-between gap-3 px-6 pt-4 text-lg">
         <span className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight">
-          <Waveform aria-hidden="true" weight="bold" className="size-8 text-primary" />
-          <span>
-            Lissan<span className="text-primary">Note</span>
-          </span>
+          <PenNib aria-hidden="true" weight="bold" className="size-8 text-primary" />
+          <span lang="am">ብዕሬ</span>
+          <span className="text-primary">Biʼire</span>
         </span>
         <span className="flex flex-wrap items-center gap-3">
           {demoMode && (
             <span className="rounded-md bg-highlight px-3 py-1 text-base font-bold text-on-highlight">Demo mode</span>
           )}
           <span className="flex items-center gap-2 font-semibold text-muted-foreground">
-            {voiceOn ? (
+            {voiceOn && listening ? (
               <Microphone aria-hidden="true" weight="bold" className="size-6 text-accent" />
             ) : (
               <MicrophoneSlash aria-hidden="true" weight="bold" className="size-6" />
             )}
-            {voiceOn ? 'Voice control on' : 'Voice control needs Chrome or Edge'}
+            {!voiceOn ? 'Voice control needs Chrome or Edge' : listening ? 'Listening' : 'Voice control off'}
           </span>
         </span>
       </header>
@@ -118,7 +118,7 @@ export default function App() {
       {heard && (
         <div
           aria-hidden="true"
-          className="fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-primary px-6 py-3 text-xl font-bold text-on-primary shadow-lg"
+          className="fixed bottom-24 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-primary px-6 py-3 text-xl font-bold text-on-primary shadow-lg"
         >
           <Ear aria-hidden="true" weight="bold" className="size-6" />
           Heard: “{heard}”
@@ -135,6 +135,7 @@ export default function App() {
           setAnswerSec={setAnswerSec}
           shortcuts={shortcuts}
           setShortcuts={setShortcuts}
+          listening={listening}
           onStart={startClass}
           onOpenNote={openNote}
         />

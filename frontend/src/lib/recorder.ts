@@ -22,11 +22,28 @@ export class ChunkRecorder {
   private frameSamples = 0
   private totalSamples = 0
   private chunkStartSample = 0
+  private currentLevel = 0
 
+  /**
+   * Chunks whose loudest sample is below `minPeak` (0..1) are treated as silence:
+   * `onSilent` is called instead of `onChunk`. 0 keeps everything.
+   */
   constructor(
     private chunkSec: number,
     private onChunk: ChunkHandler,
+    private minPeak = 0,
+    private onSilent: () => void = () => {},
   ) {}
+
+  /** The input device the browser picked, e.g. "Microphone Array (Realtek)". */
+  deviceName() {
+    return this.stream?.getAudioTracks()[0]?.label ?? ''
+  }
+
+  /** Recent microphone loudness, 0..1, for a live level meter. */
+  level() {
+    return this.currentLevel
+  }
 
   async start() {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -62,6 +79,9 @@ export class ChunkRecorder {
   }
 
   private push(frame: Float32Array) {
+    let p = 0
+    for (let i = 0; i < frame.length; i++) p = Math.max(p, Math.abs(frame[i]))
+    this.currentLevel = Math.max(p, this.currentLevel * 0.85)
     this.frames.push(frame)
     this.frameSamples += frame.length
     this.totalSamples += frame.length
@@ -80,8 +100,28 @@ export class ChunkRecorder {
     this.chunkStartSample += this.frameSamples
     this.frames = []
     this.frameSamples = 0
+    const p = peak(samples)
+    if (this.minPeak > 0 && p < this.minPeak) {
+      this.onSilent()
+      return
+    }
+    normalize(samples, p)
     this.onChunk(encodeWav(samples, rate), start, this.chunkStartSample / rate)
   }
+}
+
+function peak(samples: Float32Array): number {
+  let p = 0
+  for (let i = 0; i < samples.length; i++) p = Math.max(p, Math.abs(samples[i]))
+  return p
+}
+
+/** Boosts quiet recordings (far-away lecturer, laptop mic) so speech models hear them, up to 8x. */
+function normalize(samples: Float32Array, p: number) {
+  if (p <= 0) return
+  const gain = Math.min(8, 0.9 / p)
+  if (gain <= 1) return
+  for (let i = 0; i < samples.length; i++) samples[i] *= gain
 }
 
 function encodeWav(samples: Float32Array, rate: number): Blob {

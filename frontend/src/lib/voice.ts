@@ -104,7 +104,10 @@ export class CommandListener {
   private fired = new Set<number>()
   private lastFire = 0
 
-  constructor(private onHeard: (cmd: Command, heard: string) => void) {}
+  constructor(
+    private onHeard: (cmd: Command, heard: string) => void,
+    private onListening: (on: boolean) => void = () => {},
+  ) {}
 
   start() {
     const w = window as any
@@ -127,12 +130,15 @@ export class CommandListener {
         activeHandler?.(hit[0])
       }
     }
+    rec.onaudiostart = () => this.onListening(true)
     rec.onerror = (e: any) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') this.running = false
     }
     rec.onend = () => {
       this.fired.clear()
+      // Chrome ends recognition every so often; we restart right away, so only report a real stop.
       if (this.running) setTimeout(() => this.running && safeStart(rec), 250)
+      else this.onListening(false)
     }
     safeStart(rec)
     this.rec = rec
@@ -142,6 +148,7 @@ export class CommandListener {
     this.running = false
     this.rec?.abort()
     this.rec = null
+    this.onListening(false)
   }
 }
 

@@ -6,12 +6,34 @@ flow works on stage even with no network or API key.
 
 import base64
 import json
+import ssl
+import time
 
 import httpx
+import truststore
 
 from . import config, demo
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+# Use the OS certificate store so school/venue networks that inspect HTTPS still verify.
+SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+RETRYABLE_STATUS = {404, 429, 500, 502, 503, 504}
+
+# model -> monotonic time when its quota should be back; skipped until then.
+_exhausted_until: dict[str, float] = {}
+
+
+def _retry_delay(r: httpx.Response) -> float:
+    """Seconds until a 429'd model is worth retrying (Google's retryDelay, else 60s)."""
+    try:
+        for d in r.json()["error"].get("details", []):
+            if "retryDelay" in d:
+                return float(d["retryDelay"].rstrip("s"))
+    except (ValueError, KeyError, TypeError):
+        pass
+    return 60.0
 
 
 class AIError(RuntimeError):
@@ -35,14 +57,32 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
             "responseSchema": schema,
         },
     }
-    url = GEMINI_URL.format(model=config.GEMINI_MODEL)
-    try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body)
-    except httpx.HTTPError as e:
-        raise AIError(f"Could not reach Gemini: {e}") from e
-    if r.status_code != 200:
-        raise AIError(f"Gemini error {r.status_code}: {r.text[:300]}")
+    models = [config.GEMINI_MODEL, *(m for m in config.GEMINI_FALLBACK_MODELS if m != config.GEMINI_MODEL)]
+    now = time.monotonic()
+    ready = [m for m in models if _exhausted_until.get(m, 0) <= now]
+    if not ready:
+        raise AIError("All Gemini models are over their free-tier quota. Try later or use demo mode.")
+    errors = []
+    async with httpx.AsyncClient(timeout=config.GEMINI_TIMEOUT, verify=SSL_CONTEXT) as client:
+        for model in ready:
+            try:
+                r = await client.post(
+                    GEMINI_URL.format(model=model),
+                    headers={"x-goog-api-key": config.GEMINI_API_KEY},
+                    json=body,
+                )
+            except httpx.HTTPError as e:
+                errors.append(f"{model}: {type(e).__name__}")
+                continue
+            if r.status_code == 200:
+                break
+            errors.append(f"{model}: {r.status_code}")
+            if r.status_code == 429:
+                _exhausted_until[model] = time.monotonic() + _retry_delay(r)
+            if r.status_code not in RETRYABLE_STATUS:
+                raise AIError(f"Gemini error {r.status_code}: {r.text[:300]}")
+        else:
+            raise AIError("Gemini unavailable (" + "; ".join(errors) + ")")
     data = r.json()
     try:
         text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
@@ -58,7 +98,8 @@ Rules:
 - Transcribe exactly what is said. Do not translate, summarise or correct.
 - Write Amharic in Ge'ez (Ethiopic) script, Afaan Oromo in Latin script (Qubee), English in Latin script.
 - Keep English technical terms in English.
-- If the audio is silent, music or unintelligible, return an empty "text".
+- If the audio is silent, background noise, music or unintelligible, return an empty "text".
+- Never invent, guess or complete speech. Only write words you clearly hear; an empty "text" is always better than made-up words.
 - "languages": the codes actually spoken, chosen from: en, am, om.
 """
 

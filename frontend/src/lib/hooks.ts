@@ -44,6 +44,8 @@ export function useStoredState<T>(key: string, initial: T) {
     const raw = localStorage.getItem(key)
     return raw === null ? initial : (JSON.parse(raw) as T)
   })
-  useEffect(() => localStorage.setItem(key, JSON.stringify(value)), [key, value])
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
   return [value, setValue] as const
 }

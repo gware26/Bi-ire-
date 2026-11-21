@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** LissanNote
+**Project:** ብዕሬ (Biʼire)
 **Generated:** 2026-11-21 10:51:19
 **Category:** General
 **Design Dials:** Variance 3/10 (Centered / Minimal) | Motion 2/10 (Subtle) | Density 3/10 (Spacious)

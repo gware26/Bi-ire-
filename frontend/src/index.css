@@ -116,6 +116,21 @@
   }
 }
 
+@keyframes ln-wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.ln-wave-bar {
+  transform-origin: center;
+  animation: ln-wave 1.1s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -126,5 +141,8 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  .ln-wave-bar {
+    animation: none !important;
   }
 }
