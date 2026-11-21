@@ -109,13 +109,15 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
 
 TRANSCRIBE_PROMPT = """You are transcribing a short chunk of a university lecture recorded in Ethiopia.
 The lecturer may switch between English, Amharic and Afaan Oromo, even inside one sentence.
+The microphone is often quiet, distant, or low-volume — listen carefully for soft speech.
 
 Rules:
 - Transcribe exactly what is said. Do not translate, summarise or correct.
 - Write Amharic in Ge'ez (Ethiopic) script, Afaan Oromo in Latin script (Qubee), English in Latin script.
 - Keep English technical terms in English.
-- If the audio is silent, background noise, music or unintelligible, return an empty "text".
-- Never invent, guess or complete speech. Only write words you clearly hear; an empty "text" is always better than made-up words.
+- Prefer transcribing quiet or low speech when words are audible, even if soft or muffled.
+- If the audio is truly silent, only background noise, music or completely unintelligible, return an empty "text".
+- Never invent, guess or complete speech. Only write words you actually hear; an empty "text" is better than made-up words.
 - "languages": the codes actually spoken, chosen from: en, am, om.
 """
 

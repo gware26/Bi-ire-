@@ -113,13 +113,10 @@ const PATTERNS: [Command, RegExp][] = [
   ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
   ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
   ['bookmark', /\b(bookmark|mark (this|that))\b/],
-  // Short words last; matched against the last few words so "um… start" still works.
-  ['start', /\bstart\b|\bbegin\b/],
-  ['stop', /\bover\b|\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
 ]
 
 /** Strip punctuation Chrome adds so "start." and "Over!" still match. */
-function cleanHeard(raw: string) {
+export function cleanHeard(raw: string) {
   return raw
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s']/gu, ' ')
@@ -127,14 +124,39 @@ function cleanHeard(raw: string) {
     .trim()
 }
 
+/** True when the student said the short stop word (not lecture content like "over the years"). */
+export function looksLikeStop(raw: string) {
+  const heard = cleanHeard(raw)
+  if (!heard) return false
+  if (/\b(end|stop|finish) (the )?(class|lecture|recording|note)\b/.test(heard)) return true
+  if (/\bsave (the |my )?note\b/.test(heard)) return true
+  const words = heard.split(' ')
+  const last = words[words.length - 1]
+  // Quiet ASR often mishears "over" as these.
+  if (!['over', 'ova', 'ober', 'oliver', 'other'].includes(last)) return false
+  return words.length <= 4
+}
+
+/** True when the student said the short start word (allows "um start", quiet mishears). */
+export function looksLikeStart(raw: string) {
+  const heard = cleanHeard(raw)
+  if (!heard) return false
+  if (/\b(start|begin) (the )?(class|lecture|recording)\b/.test(heard)) return true
+  const words = heard.split(' ')
+  const last = words[words.length - 1]
+  if (!['start', 'begin', 'started', 'stark'].includes(last)) return false
+  return words.length <= 4
+}
+
 function matchCommand(raw: string): Command | null {
   const heard = cleanHeard(raw)
   if (!heard) return null
-  // Chrome continuous mode often appends words; also try the last 4 words alone.
   const tail = heard.split(' ').slice(-4).join(' ')
   for (const [cmd, re] of PATTERNS) {
     if (re.test(heard) || re.test(tail)) return cmd
   }
+  if (looksLikeStart(heard)) return 'start'
+  if (looksLikeStop(heard)) return 'stop'
   return null
 }
 
@@ -167,15 +189,32 @@ export class CommandListener {
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition
     if (!SR || this.running) return
     this.running = true
-    const rec = new SR()
+    this.bind(new SR())
+  }
+
+  /** Call after getUserMedia starts — Chrome often kills recognition when the recorder opens the mic. */
+  restart() {
+    if (!this.running) return
+    try {
+      this.rec?.abort()
+    } catch {
+      /* already stopped */
+    }
+    const w = window as any
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!SR) return
+    this.fired.clear()
+    this.bind(new SR())
+  }
+
+  private bind(rec: any) {
     rec.lang = 'en-US'
     rec.continuous = true
-    rec.interimResults = true
-    rec.maxAlternatives = 3
+    rec.interimResults = false
+    rec.maxAlternatives = 5
     rec.onresult = (e: any) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (this.fired.has(i)) continue
-        // Try every alternative Chrome offers — quiet / accented speech often isn't #1.
+        if (!e.results[i].isFinal || this.fired.has(i)) continue
         let cmd: Command | null = null
         let heard = ''
         const alts = e.results[i].length as number
@@ -184,7 +223,7 @@ export class CommandListener {
           cmd = matchCommand(heard)
           if (cmd) break
         }
-        if (!cmd || Date.now() - this.lastFire < 1200) continue
+        if (!cmd || Date.now() - this.lastFire < 900) continue
         this.fired.add(i)
         this.lastFire = Date.now()
         this.onHeard(cmd, cleanHeard(heard))
@@ -193,12 +232,15 @@ export class CommandListener {
     }
     rec.onaudiostart = () => this.onListening(true)
     rec.onerror = (e: any) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') this.running = false
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        this.running = false
+        this.onListening(false)
+      }
+      // audio-capture / aborted: mic stolen by recorder — onend will restart.
     }
     rec.onend = () => {
       this.fired.clear()
-      // Chrome ends recognition every so often; we restart right away, so only report a real stop.
-      if (this.running) setTimeout(() => this.running && safeStart(rec), 250)
+      if (this.running) setTimeout(() => this.running && safeStart(rec), 300)
       else this.onListening(false)
     }
     safeStart(rec)
@@ -207,7 +249,11 @@ export class CommandListener {
 
   stop() {
     this.running = false
-    this.rec?.abort()
+    try {
+      this.rec?.abort()
+    } catch {
+      /* ignore */
+    }
     this.rec = null
     this.onListening(false)
   }

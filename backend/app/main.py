@@ -95,7 +95,12 @@ def _note_payload(conn, note_id: int) -> dict:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "demo_mode": config.DEMO_MODE, "model": config.GEMINI_MODEL}
+    return {
+        "ok": True,
+        "demo_mode": config.DEMO_MODE,
+        "model": config.GEMINI_MODEL,
+        "build": config.BUILD_ID,
+    }
 
 
 @app.post("/api/sessions")

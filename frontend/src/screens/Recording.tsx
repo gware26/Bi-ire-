@@ -3,14 +3,14 @@ import { BookmarkSimple, MicrophoneSlash, Stop, Warning } from '@phosphor-icons/
 import { api, type Segment } from '../lib/api'
 import { ChunkRecorder } from '../lib/recorder'
 import { useControls } from '../lib/hooks'
-import { cues } from '../lib/voice'
+import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
 // Each chunk is one Gemini request, and the free tier allows ~20 per model per day.
 const CHUNK_SEC = 15
 // Loudest sample below this = nobody spoke in the chunk, so it is not sent.
-const SILENCE_PEAK = 0.006
+const SILENCE_PEAK = 0.003
 const QUIET_WARN_SEC = 6
 
 interface Props {
@@ -58,6 +58,7 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
   const lastHeard = useRef(0)
   const started = useRef(false)
   const transcriptEnd = useRef<HTMLDivElement>(null)
+  const finishRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
     if (started.current) return
@@ -79,6 +80,8 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
                 if (segment) {
                   segmentCount.current++
                   setSegments((s) => [...s, segment].sort((a, b) => a.start_sec - b.start_sec))
+                  // Backup when Web Speech loses the mic to the recorder: "over" in the transcript ends class.
+                  if (looksLikeStop(segment.text)) queue finishRef.current()
                 }
                 setChunkError('')
               })
@@ -96,7 +99,7 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
         recorder.current = rec
         setPhase('recording')
         cues.start()
-        announce('Recording started')
+        announce('Recording started. Say over when you are done.')
         timer = window.setInterval(() => {
           const t = rec.elapsedSec()
           const l = rec.level()
@@ -152,6 +155,8 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
     }
     onFinished(sessionId.current)
   }
+
+  finishRef.current = finish
 
   useControls(
     { bookmark: () => bookmark('voice'), stop: finish, home: onHome },

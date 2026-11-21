@@ -122,10 +122,10 @@ function peak(samples: Float32Array): number {
   return p
 }
 
-/** Boosts quiet / low-level recordings so speech models hear them (up to 16x). */
+/** Boosts quiet / low-level recordings so speech models hear them (up to 24x). */
 function normalize(samples: Float32Array, p: number) {
   if (p <= 0) return
-  const gain = Math.min(16, 0.9 / p)
+  const gain = Math.min(24, 0.95 / p)
   if (gain <= 1) return
   for (let i = 0; i < samples.length; i++) samples[i] *= gain
 }

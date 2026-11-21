@@ -51,9 +51,32 @@ export default function App() {
       setHeard(text)
       announce(`Heard: ${text}`)
     }, setListening)
+    // Chrome often blocks SpeechRecognition until a click/key; arm on first gesture.
+    const arm = () => {
+      listener.start()
+      window.removeEventListener('pointerdown', arm)
+      window.removeEventListener('keydown', arm)
+    }
+    window.addEventListener('pointerdown', arm)
+    window.addEventListener('keydown', arm)
     listener.start()
-    return () => listener.stop()
+    ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice = listener
+    return () => {
+      window.removeEventListener('pointerdown', arm)
+      window.removeEventListener('keydown', arm)
+      delete (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
+      listener.stop()
+    }
   }, [])
+
+  useEffect(() => {
+    // After recording/speak opens the mic, kick recognition so "over" can still be heard.
+    if (screen.name !== 'recording' && screen.name !== 'speak') return
+    const t = window.setTimeout(() => {
+      ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice?.restart()
+    }, 800)
+    return () => window.clearTimeout(t)
+  }, [screen])
 
   useEffect(() => {
     if (!heard) return

@@ -3,12 +3,12 @@ import { FloppyDisk, MicrophoneSlash, Warning } from '@phosphor-icons/react'
 import { api, type Segment } from '../lib/api'
 import { ChunkRecorder } from '../lib/recorder'
 import { useControls } from '../lib/hooks'
-import { cues } from '../lib/voice'
+import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
 const CHUNK_SEC = 15
-const SILENCE_PEAK = 0.006
+const SILENCE_PEAK = 0.003
 const QUIET_WARN_SEC = 6
 
 interface Props {
@@ -55,6 +55,28 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
   const lastHeard = useRef(0)
   const started = useRef(false)
   const transcriptEnd = useRef<HTMLDivElement>(null)
+  const saveRef = useRef<() => Promise<void>>(async () => {})
+
+  async function save() {
+    if (phase !== 'recording' || !recorder.current) return
+    setPhase('finishing')
+    cues.stop()
+    await recorder.current.stop()
+    recorder.current = null
+    await Promise.allSettled([...pending.current])
+    if (segmentCount.current === 0) {
+      cues.error()
+      onFailed(
+        chunkError
+          ? `Nothing was saved: ${chunkError}`
+          : 'No speech was heard. Speak for at least 15 seconds, then say “save note”.',
+      )
+      return
+    }
+    onFinished(sessionId.current)
+  }
+
+  saveRef.current = save
 
   useEffect(() => {
     if (started.current) return
@@ -75,6 +97,7 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
                 if (segment) {
                   segmentCount.current++
                   setSegments((s) => [...s, segment].sort((a, b) => a.start_sec - b.start_sec))
+                  if (looksLikeStop(segment.text)) void saveRef.current()
                 }
                 setChunkError('')
               })
@@ -91,7 +114,7 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
         recorder.current = rec
         setPhase('recording')
         cues.start()
-        announce('Speak your note. Say “save note” when you are done.')
+        announce('Speak your note. Say over when you are done.')
         timer = window.setInterval(() => {
           const t = rec.elapsedSec()
           const l = rec.level()
@@ -115,25 +138,6 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: 'smooth' })
   }, [segments])
-
-  async function save() {
-    if (phase !== 'recording' || !recorder.current) return
-    setPhase('finishing')
-    cues.stop()
-    await recorder.current.stop()
-    recorder.current = null
-    await Promise.allSettled([...pending.current])
-    if (segmentCount.current === 0) {
-      cues.error()
-      onFailed(
-        chunkError
-          ? `Nothing was saved: ${chunkError}`
-          : 'No speech was heard. Speak for at least 15 seconds, then say “save note”.',
-      )
-      return
-    }
-    onFinished(sessionId.current)
-  }
 
   useControls({ stop: save, home: onHome }, { Enter: save, Escape: save })
 
