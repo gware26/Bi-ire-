@@ -177,7 +177,7 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
             className={`size-5 shrink-0 rounded-full ${phase === 'recording' ? 'animate-pulse bg-destructive' : 'bg-muted-foreground'}`}
           />
           <span aria-live="polite">
-            {phase === 'starting' ? 'Startingâ€¦' : phase === 'finishing' ? 'Saving last wordsâ€¦' : course.trim() ? `Recording Â· ${course.trim()}` : 'Recording'}
+            {phase === 'starting' ? 'Starting...' : phase === 'finishing' ? 'Saving last words...' : course.trim() ? `Recording - ${course.trim()}` : 'Recording'}
           </span>
         </h1>
         <span className="flex items-center gap-4">
@@ -200,9 +200,9 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
         <p className="flex items-center gap-3 rounded-2xl bg-highlight px-6 py-4 text-xl font-bold text-on-highlight">
           <MicrophoneSlash aria-hidden="true" weight="bold" className="size-7 shrink-0" />
           <span>
-            The microphone canâ€™t hear anything.
-            {recorder.current?.deviceName() && ` Chrome is using â€œ${recorder.current.deviceName()}â€.`} Pick another one with
-            the microphone icon in the address bar, or check that it isnâ€™t muted.
+            The microphone can't hear anything.
+            {recorder.current?.deviceName() && ` Chrome is using "${recorder.current.deviceName()}".`} Pick another one with
+            the microphone icon in the address bar, or check that it isn't muted.
           </span>
         </p>
       )}
@@ -216,17 +216,17 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
           className="max-h-[60vh] overflow-y-auto rounded-2xl border-2 border-border bg-card p-6 text-2xl leading-relaxed md:max-h-none"
         >
           {segments.length === 0 && inFlight === 0 && (
-            <p className="text-muted-foreground">Listeningâ€¦ the transcript appears every {CHUNK_SEC} seconds.</p>
+            <p className="text-muted-foreground">Listening... the transcript appears every {CHUNK_SEC} seconds.</p>
           )}
           {segments.map((s) => (
             <p key={s.id} lang={s.langs.length === 1 ? s.langs[0] : undefined} className="mb-4 max-w-[70ch]">
               <span className="mr-2 rounded-md bg-muted px-2 py-0.5 align-middle text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                {fmt(s.start_sec)} Â· {s.langs.join(' + ') || 'â€”'}
+                {fmt(s.start_sec)} - {s.langs.join(' + ') || '-'}
               </span>
               {s.text}
             </p>
           ))}
-          {inFlight > 0 && <p className="text-lg text-muted-foreground">Transcribingâ€¦</p>}
+          {inFlight > 0 && <p className="text-lg text-muted-foreground">Transcribing...</p>}
           {silentChunk && inFlight === 0 && (
             <p className="text-lg text-muted-foreground">No speech in the last {CHUNK_SEC} seconds.</p>
           )}
@@ -245,7 +245,7 @@ export function Recording({ course, onFinished, onFailed, onHome }: Props) {
             icon={BookmarkSimple}
             onClick={() => bookmark()}
             disabled={phase !== 'recording'}
-            hint={`Say "bookmark" or press Space Â· ${bookmarks.length} saved`}
+            hint={`Say "bookmark" or press Space - ${bookmarks.length} saved`}
             className="flex-[2]"
           >
             Bookmark

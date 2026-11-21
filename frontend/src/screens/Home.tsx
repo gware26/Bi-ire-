@@ -146,11 +146,11 @@ export function Home(props: Props) {
               <p id="start-hint" className="text-center text-xl font-medium text-muted-foreground">
                 {listening
                   ? shortcuts
-                    ? 'Listening… say "start", tap, or press Space'
-                    : 'Listening… say "start" or tap'
+                    ? 'Listening... say "start", tap, or press Space'
+                    : 'Listening... say "start" or tap'
                   : shortcuts
-                    ? 'Tap Enable voice (top right), then say "start" — or press Space'
-                    : 'Tap Enable voice (top right), then say "start" — or tap Start'}
+                    ? 'Tap or press Space to start'
+                    : 'Tap to start'}
               </p>
             </div>
           </>

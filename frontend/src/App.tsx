@@ -31,7 +31,7 @@ export default function App() {
   const [heard, setHeard] = useState('')
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState('')
-  const [voiceReady, setVoiceReady] = useState(false)
+  const [voiceReady, setVoiceReady] = useState(false) // set after first click unlocks the mic
 
   useEffect(() => {
     const titles: Record<Screen['name'], string> = {
@@ -96,13 +96,6 @@ export default function App() {
     return () => clearTimeout(t)
   }, [heard])
 
-  async function enableVoice() {
-    const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
-    if (!voice) return
-    const ok = await voice.enable()
-    if (ok) setVoiceReady(true)
-  }
-
   const startClass = () => setScreen({ name: 'recording', key: Date.now() })
   const startSpeakNote = () => setScreen({ name: 'speak', key: Date.now() })
 
@@ -160,28 +153,13 @@ export default function App() {
           {demoMode && (
             <span className="rounded-md bg-highlight px-3 py-1 text-base font-bold text-on-highlight">Demo mode</span>
           )}
-          <span className="flex flex-wrap items-center gap-3">
-            <span className="flex items-center gap-2 font-semibold text-muted-foreground">
-              {voiceOn && listening ? (
-                <Microphone aria-hidden="true" weight="bold" className="size-6 text-accent" />
-              ) : (
-                <MicrophoneSlash aria-hidden="true" weight="bold" className="size-6" />
-              )}
-              {!voiceOn
-                ? 'Voice needs Chrome or Edge'
-                : listening
-                  ? 'Listening'
-                  : 'Voice off'}
-            </span>
-            {voiceOn && !listening && screen.name !== 'recording' && screen.name !== 'speak' && (
-              <button
-                type="button"
-                onClick={() => void enableVoice()}
-                className="rounded-xl bg-accent px-4 py-2 text-base font-bold text-on-accent"
-              >
-                Enable voice
-              </button>
+          <span className="flex items-center gap-2 font-semibold text-muted-foreground">
+            {voiceOn && listening ? (
+              <Microphone aria-hidden="true" weight="bold" className="size-6 text-accent" />
+            ) : (
+              <MicrophoneSlash aria-hidden="true" weight="bold" className="size-6" />
             )}
+            {!voiceOn ? 'Voice needs Chrome or Edge' : listening ? 'Listening' : 'Voice off'}
           </span>
         </span>
       </header>

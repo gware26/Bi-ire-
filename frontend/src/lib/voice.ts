@@ -303,7 +303,7 @@ export class CommandListener {
       }
       // no-speech / aborted / network: let onend recreate the session
       if (err === 'network') {
-        this.onError('Speech service offline. Check your internet, then tap Enable voice.')
+        this.onError('Speech service offline. Check your internet, then tap the page once.')
       }
     }
 

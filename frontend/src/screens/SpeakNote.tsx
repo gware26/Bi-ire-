@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FloppyDisk, MicrophoneSlash, Warning } from '@phosphor-icons/react'
 import { api, type Segment } from '../lib/api'
 import { ChunkRecorder } from '../lib/recorder'
@@ -69,7 +69,7 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
       onFailed(
         chunkError
           ? `Nothing was saved: ${chunkError}`
-          : 'No speech was heard. Speak for at least 15 seconds, then say â€œsave noteâ€.',
+          : 'No speech was heard. Speak for at least 15 seconds, then say "save note".',
       )
       return
     }
@@ -153,11 +153,11 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
           />
           <span aria-live="polite">
             {phase === 'starting'
-              ? 'Startingâ€¦'
+              ? 'Starting...'
               : phase === 'finishing'
-                ? 'Saving your noteâ€¦'
+                ? 'Saving your note...'
                 : course.trim()
-                  ? `Speaking a note Â· ${course.trim()}`
+                  ? `Speaking a note - ${course.trim()}`
                   : 'Speaking a note'}
           </span>
         </h1>
@@ -174,8 +174,8 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
         <p className="flex items-center gap-3 rounded-2xl bg-highlight px-6 py-4 text-xl font-bold text-on-highlight">
           <MicrophoneSlash aria-hidden="true" weight="bold" className="size-7 shrink-0" />
           <span>
-            The microphone canâ€™t hear anything.
-            {recorder.current?.deviceName() && ` Chrome is using â€œ${recorder.current.deviceName()}â€.`}
+            The microphone can't hear anything.
+            {recorder.current?.deviceName() && ` Chrome is using "${recorder.current.deviceName()}".`}
           </span>
         </p>
       )}
@@ -188,14 +188,14 @@ export function SpeakNote({ course, onFinished, onFailed, onHome }: Props) {
         className="max-h-[50vh] flex-1 overflow-y-auto rounded-2xl border-2 border-border bg-card p-6 text-2xl leading-relaxed"
       >
         {segments.length === 0 && inFlight === 0 && (
-          <p className="text-muted-foreground">Speak freelyâ€¦ your words appear here every {CHUNK_SEC} seconds.</p>
+          <p className="text-muted-foreground">Speak freely... your words appear here every {CHUNK_SEC} seconds.</p>
         )}
         {segments.map((s) => (
           <p key={s.id} lang={s.langs.length === 1 ? s.langs[0] : undefined} className="mb-4 max-w-[70ch]">
             {s.text}
           </p>
         ))}
-        {inFlight > 0 && <p className="text-lg text-muted-foreground">Transcribingâ€¦</p>}
+        {inFlight > 0 && <p className="text-lg text-muted-foreground">Transcribing...</p>}
         {chunkError && (
           <p className="flex items-center gap-2 text-lg font-semibold text-destructive" role="alert">
             <Warning aria-hidden="true" weight="bold" className="size-6 shrink-0" />
