@@ -71,7 +71,7 @@ export const cues = {
   error: () => beep(220, 400),
 }
 
-// ---------- Voice commands (English wake phrases via the Web Speech API) ----------
+// ---------- Voice commands ----------
 
 export type Command =
   | 'start'
@@ -94,12 +94,9 @@ export type Command =
   | 'notebooks'
   | 'settings'
 
-const PATTERNS: [Command, RegExp][] = [
-  // "quiz" alone is enough; ASR often drops "me" or mishears it.
-  [
-    'quiz',
-    /\b(quiz(\s+me)?|start (the )?quiz|test me|give me (a |the )?quiz|quiz time|quizz?es?)\b/,
-  ],
+/** Longer phrases first so short words do not steal them. */
+const PHRASES: [Command, RegExp][] = [
+  ['quiz', /\b(start (the )?quiz|quiz me|test me|give me (a |the )?quiz|quiz time)\b/],
   ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
   ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
   ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
@@ -108,15 +105,43 @@ const PATTERNS: [Command, RegExp][] = [
   ['home', /\b(go home|main menu|home screen)\b/],
   ['next', /\bnext( card| one)?\b/],
   ['previous', /\b(previous|last card|go back)( card| one)?\b/],
-  ['cards', /\b((open |show |go to )?(the )?flash ?cards?|(open |show |go to )?cards)\b/],
+  ['cards', /\b((open |show |go to )?(the )?flash ?cards?|flash ?cards?)\b/],
   ['ask', /\b((open |show |go to )?(the )?(ask|chat|tutor)|ask (a |the )?question|ask the tutor)\b/],
-  ['plan', /\b((open |show |go to )?(my |the )?study plan|(open |show |go to )?plan)\b/],
-  ['materials', /\b((open |show |go to )?(my |the )?(materials|files|slides)|materials|files|slides)\b/],
+  ['plan', /\b((open |show |go to )?(my |the )?study plan)\b/],
+  ['materials', /\b((open |show |go to )?(my |the )?(materials|files|slides))\b/],
   ['notes', /\b((open |show |go to )?(my |the )?notes)\b/],
-  ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
-  ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
-  ['bookmark', /\b(bookmark|mark (this|that))\b/],
+  ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?)\b/],
+  ['settings', /\b((open |show |go to )?(the )?settings?|class setup)\b/],
+  ['bookmark', /\b(bookmark|book mark|mark (this|that|it))\b/],
+  ['stop', /\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
+  ['start', /\b(start|begin) (the )?(class|lecture|recording)\b/],
 ]
+
+/**
+ * Single-word (and short) aliases, including common Chrome mishearings.
+ * Checked with exact match first, then 1-edit fuzzy for short words.
+ */
+const WORD_ALIASES: [Command, string[]][] = [
+  ['stop', ['over', 'ova', 'ober', 'ovar', 'ofer', 'ouver', 'rover', 'hover', 'owen', 'oval', 'avo', 'finish', 'finished']],
+  ['start', ['start', 'started', 'starts', 'begin', 'begun', 'stark', 'stat', 'starr']],
+  ['quiz', ['quiz', 'quizzes', 'quis', 'quest', 'quests', 'quizzy']],
+  ['bookmark', ['bookmark', 'bookmarks']],
+  ['home', ['home']],
+  ['next', ['next']],
+  ['previous', ['previous', 'back']],
+  ['cards', ['cards', 'card', 'flashcards', 'flashcard']],
+  ['ask', ['ask', 'tutor', 'chat']],
+  ['plan', ['plan']],
+  ['materials', ['materials', 'files', 'slides']],
+  ['notes', ['notes']],
+  ['notebooks', ['notebooks', 'notebook']],
+  ['settings', ['settings', 'setting']],
+  ['flip', ['flip', 'flipped']],
+  ['read', ['read']],
+  ['done', ['done']],
+]
+
+const FILLER = new Set(['um', 'uh', 'erm', 'ah', 'oh', 'okay', 'ok', 'please', 'hey', 'yeah', 'yes', 'the', 'a', 'my'])
 
 /** Strip punctuation Chrome adds so "start." and "Over!" still match. */
 export function cleanHeard(raw: string) {
@@ -127,56 +152,84 @@ export function cleanHeard(raw: string) {
     .trim()
 }
 
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (!a.length) return b.length
+  if (!b.length) return a.length
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 0; i < a.length; i++) {
+    let prev = i + 1
+    for (let j = 0; j < b.length; j++) {
+      const cur = a[i] === b[j] ? row[j]! : 1 + Math.min(row[j]!, row[j + 1]!, prev)
+      row[j] = prev
+      prev = cur
+    }
+    row[b.length] = prev
+  }
+  return row[b.length]!
+}
+
+/** True if word matches a target exactly or within 1 edit (for words 3+ letters). */
+function closeTo(word: string, targets: string[]): boolean {
+  for (const t of targets) {
+    if (word === t) return true
+    if (word.length >= 3 && t.length >= 3 && Math.abs(word.length - t.length) <= 1 && editDistance(word, t) <= 1) {
+      return true
+    }
+  }
+  return false
+}
+
+function contentWords(heard: string): string[] {
+  return heard.split(' ').filter((w) => w && !FILLER.has(w))
+}
+
 /** True when the student said the short stop word (not lecture content like "over the years"). */
 export function looksLikeStop(raw: string) {
   const heard = cleanHeard(raw)
   if (!heard) return false
   if (/\b(end|stop|finish) (the )?(class|lecture|recording|note)\b/.test(heard)) return true
   if (/\bsave (the |my )?note\b/.test(heard)) return true
-  const words = heard.split(' ')
-  const last = words[words.length - 1]
-  if (!['over', 'ova', 'ober', 'oliver'].includes(last)) return false
-  return words.length <= 4
+  const words = contentWords(heard)
+  if (words.length === 0 || words.length > 4) return false
+  const last = words[words.length - 1]!
+  return closeTo(last, WORD_ALIASES.find(([c]) => c === 'stop')![1])
 }
 
-/** True when the student said the short start word (allows "um start", quiet mishears). */
 export function looksLikeStart(raw: string) {
   const heard = cleanHeard(raw)
   if (!heard) return false
   if (/\b(start|begin) (the )?(class|lecture|recording)\b/.test(heard)) return true
-  const words = heard.split(' ')
-  const last = words[words.length - 1]
-  if (!['start', 'begin', 'started', 'stark'].includes(last)) return false
-  return words.length <= 4
+  const words = contentWords(heard)
+  if (words.length === 0 || words.length > 4) return false
+  return closeTo(words[words.length - 1]!, WORD_ALIASES.find(([c]) => c === 'start')![1])
 }
 
-/** ASR often mangles "quiz me" into near-misses. */
-function looksLikeQuiz(raw: string) {
-  const heard = cleanHeard(raw)
-  if (!heard) return false
-  if (/\bquiz\b/.test(heard)) return true
-  // Common Chrome mishearings of "quiz me"
-  if (/\b(quis|quests?|twins|cause|kiss|chris|quizzy)\s*(me)?\b/.test(heard)) return true
-  const words = heard.split(' ')
-  const last = words[words.length - 1]
-  const prev = words.length > 1 ? words[words.length - 2] : ''
-  if (last === 'me' && ['quiz', 'quis', 'quests', 'quest', 'twins', 'cause', 'kiss'].includes(prev)) {
-    return true
+function matchShortCommand(heard: string): Command | null {
+  const words = contentWords(heard)
+  if (words.length === 0 || words.length > 4) return null
+  const last = words[words.length - 1]!
+  const prev = words.length > 1 ? words[words.length - 2]! : ''
+
+  // "quiz me" / mishear + me
+  if (last === 'me' && closeTo(prev, WORD_ALIASES.find(([c]) => c === 'quiz')![1])) return 'quiz'
+
+  for (const [cmd, aliases] of WORD_ALIASES) {
+    if (closeTo(last, aliases)) return cmd
+    // whole short phrase is one alias token like "flashcards"
+    if (words.length === 1 && closeTo(words[0]!, aliases)) return cmd
   }
-  return false
+  return null
 }
 
-function matchCommand(raw: string): Command | null {
+export function matchCommand(raw: string): Command | null {
   const heard = cleanHeard(raw)
   if (!heard) return null
-  const tail = heard.split(' ').slice(-4).join(' ')
-  for (const [cmd, re] of PATTERNS) {
+  const tail = heard.split(' ').slice(-5).join(' ')
+  for (const [cmd, re] of PHRASES) {
     if (re.test(heard) || re.test(tail)) return cmd
   }
-  if (looksLikeQuiz(heard)) return 'quiz'
-  if (looksLikeStart(heard)) return 'start'
-  if (looksLikeStop(heard)) return 'stop'
-  return null
+  return matchShortCommand(heard) ?? matchShortCommand(tail)
 }
 
 type Handler = (c: Command) => void
@@ -210,6 +263,7 @@ export class CommandListener {
   private fired = new Set<number>()
   private lastFire = 0
   private lastShown = ''
+  private lastCmd: Command | null = null
 
   constructor(
     private onHeard: (cmd: Command | null, heard: string) => void,
@@ -229,7 +283,6 @@ export class CommandListener {
     } else {
       this.onError('')
     }
-    // Start recognition even if getUserMedia was blocked — Chrome may still prompt via SpeechRecognition.
     this.start()
     return ok
   }
@@ -269,6 +322,7 @@ export class CommandListener {
     this.rec = rec
     this.fired.clear()
 
+    // en-US is most reliable for Chrome; still matches accented English via fuzzy aliases.
     rec.lang = 'en-US'
     rec.continuous = true
     rec.interimResults = true
@@ -291,15 +345,20 @@ export class CommandListener {
         let cmd: Command | null = null
         let heard = ''
         const alts = e.results[i].length as number
+        // Score every alternative — quiet / accented speech often is not #1.
         for (let a = 0; a < alts; a++) {
-          heard = e.results[i][a].transcript
-          cmd = matchCommand(heard)
-          if (cmd) break
+          const t = e.results[i][a].transcript as string
+          const hit = matchCommand(t)
+          if (hit) {
+            cmd = hit
+            heard = t
+            break
+          }
+          if (!heard) heard = t
         }
         const cleaned = cleanHeard(heard)
         if (!cleaned) continue
 
-        // Avoid re-render storms from identical interim text.
         if (cleaned !== this.lastShown) {
           this.lastShown = cleaned
           this.onHeard(cmd, cleaned)
@@ -307,9 +366,17 @@ export class CommandListener {
           this.onHeard(cmd, cleaned)
         }
 
-        if (!cmd || this.fired.has(i) || Date.now() - this.lastFire < 900) continue
+        if (!cmd) continue
+        // Allow interim short commands (over / start / quiz) so we do not wait for silence.
+        const isFinal = e.results[i].isFinal as boolean
+        const short = cleaned.split(' ').length <= 3
+        if (!isFinal && !short) continue
+        if (this.fired.has(i) && this.lastCmd === cmd) continue
+        if (Date.now() - this.lastFire < 700 && this.lastCmd === cmd) continue
+
         this.fired.add(i)
         this.lastFire = Date.now()
+        this.lastCmd = cmd
         activeHandler?.(cmd)
       }
     }
@@ -323,10 +390,10 @@ export class CommandListener {
         this.onError('Microphone blocked. Allow the mic in the address bar.')
         return
       }
-      // no-speech / aborted / network: let onend recreate the session
       if (err === 'network') {
-        this.onError('Speech service offline. Check your internet, then tap the page once.')
+        this.onError('Speech service offline. Check your internet.')
       }
+      // audio-capture: recorder may own the mic briefly — onend will retry.
     }
 
     rec.onend = () => {
@@ -336,10 +403,9 @@ export class CommandListener {
         this.onListening(false)
         return
       }
-      // Always use a fresh instance — reusing a stopped SR often never hears again.
       setTimeout(() => {
         if (this.running && gen === this.generation) this.spawn()
-      }, 280)
+      }, 200)
     }
 
     try {
@@ -347,7 +413,7 @@ export class CommandListener {
     } catch {
       setTimeout(() => {
         if (this.running && gen === this.generation) this.spawn()
-      }, 400)
+      }, 350)
     }
   }
 }

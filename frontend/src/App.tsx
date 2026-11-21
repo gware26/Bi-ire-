@@ -69,13 +69,9 @@ export default function App() {
   useEffect(() => {
     const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
     if (!voice) return
-    // Recording owns the mic — pause commands, then turn voice back on afterward.
-    if (screen.name === 'recording' || screen.name === 'speak') {
-      voice.stop()
-      setListening(false)
-    } else {
-      void voice.enable()
-    }
+    // Keep listening on every screen (including recording) so "over" / "bookmark" still work.
+    // If the recorder briefly steals the mic, CommandListener restarts itself.
+    if (!voice.isRunning) void voice.enable()
   }, [screen])
 
   useEffect(() => {
