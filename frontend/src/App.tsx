@@ -47,9 +47,9 @@ export default function App() {
 
   useEffect(() => {
     api.health().then((h) => setDemoMode(h.demo_mode)).catch(() => setDemoMode(null))
-    const listener = new CommandListener((_, text) => {
+    const listener = new CommandListener((cmd, text) => {
       setHeard(text)
-      announce(`Heard: ${text}`)
+      if (cmd) announce(`Heard: ${text}`)
     }, setListening)
     // Chrome often blocks SpeechRecognition until a click/key; arm on first gesture.
     const arm = () => {
@@ -70,12 +70,16 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // After recording/speak opens the mic, kick recognition so "over" can still be heard.
-    if (screen.name !== 'recording' && screen.name !== 'speak') return
-    const t = window.setTimeout(() => {
-      ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice?.restart()
-    }, 800)
-    return () => window.clearTimeout(t)
+    const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
+    if (!voice) return
+    // Recording and SpeechRecognition cannot share the mic — stop commands while capturing,
+    // then start again on home/notes so "start" works.
+    if (screen.name === 'recording' || screen.name === 'speak') {
+      voice.stop()
+      setListening(false)
+    } else {
+      voice.start()
+    }
   }, [screen])
 
   useEffect(() => {

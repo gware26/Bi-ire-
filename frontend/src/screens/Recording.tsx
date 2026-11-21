@@ -7,10 +7,11 @@ import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
-// Each chunk is one Gemini request, and the free tier allows ~20 per model per day.
-const CHUNK_SEC = 15
+// Each chunk is one Gemini request; shorter = faster "is it hearing me?" feedback.
+const CHUNK_SEC = 8
 // Loudest sample below this = nobody spoke in the chunk, so it is not sent.
-const SILENCE_PEAK = 0.003
+// Near-zero: send almost every chunk; quiet lecture mics often peak under 0.01.
+const SILENCE_PEAK = 0.001
 const QUIET_WARN_SEC = 6
 
 interface Props {

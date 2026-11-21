@@ -180,7 +180,7 @@ export class CommandListener {
   private lastFire = 0
 
   constructor(
-    private onHeard: (cmd: Command, heard: string) => void,
+    private onHeard: (cmd: Command | null, heard: string) => void,
     private onListening: (on: boolean) => void = () => {},
   ) {}
 
@@ -192,29 +192,13 @@ export class CommandListener {
     this.bind(new SR())
   }
 
-  /** Call after getUserMedia starts — Chrome often kills recognition when the recorder opens the mic. */
-  restart() {
-    if (!this.running) return
-    try {
-      this.rec?.abort()
-    } catch {
-      /* already stopped */
-    }
-    const w = window as any
-    const SR = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!SR) return
-    this.fired.clear()
-    this.bind(new SR())
-  }
-
   private bind(rec: any) {
     rec.lang = 'en-US'
     rec.continuous = true
-    rec.interimResults = false
+    rec.interimResults = true
     rec.maxAlternatives = 5
     rec.onresult = (e: any) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (!e.results[i].isFinal || this.fired.has(i)) continue
         let cmd: Command | null = null
         let heard = ''
         const alts = e.results[i].length as number
@@ -223,24 +207,27 @@ export class CommandListener {
           cmd = matchCommand(heard)
           if (cmd) break
         }
-        if (!cmd || Date.now() - this.lastFire < 900) continue
+        const cleaned = cleanHeard(heard)
+        if (!cleaned) continue
+        // Always surface what Chrome heard so the student can tell the mic works.
+        this.onHeard(cmd, cleaned)
+        if (!cmd || this.fired.has(i) || Date.now() - this.lastFire < 900) continue
         this.fired.add(i)
         this.lastFire = Date.now()
-        this.onHeard(cmd, cleanHeard(heard))
         activeHandler?.(cmd)
       }
     }
     rec.onaudiostart = () => this.onListening(true)
+    rec.onstart = () => this.onListening(true)
     rec.onerror = (e: any) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         this.running = false
         this.onListening(false)
       }
-      // audio-capture / aborted: mic stolen by recorder — onend will restart.
     }
     rec.onend = () => {
       this.fired.clear()
-      if (this.running) setTimeout(() => this.running && safeStart(rec), 300)
+      if (this.running) setTimeout(() => this.running && safeStart(rec), 250)
       else this.onListening(false)
     }
     safeStart(rec)

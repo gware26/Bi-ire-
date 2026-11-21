@@ -5,7 +5,7 @@ const WORKLET = `
 class Capture extends AudioWorkletProcessor {
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
+    if (ch && ch.length) this.port.postMessage(Float32Array.from(ch));
     return true;
   }
 }
@@ -18,6 +18,7 @@ export class ChunkRecorder {
   private ctx?: AudioContext
   private stream?: MediaStream
   private node?: AudioWorkletNode
+  private silent?: GainNode
   private frames: Float32Array[] = []
   private frameSamples = 0
   private totalSamples = 0
@@ -46,11 +47,11 @@ export class ChunkRecorder {
   }
 
   async start() {
-    // autoGainControl lifts quiet / distant voices; noiseSuppression off so soft speech is not erased.
+    // Soft speech: AGC on, noise suppression / AEC off (AEC often zeros quiet lecture mics).
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        echoCancellation: true,
+        echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: true,
       },
@@ -60,14 +61,23 @@ export class ChunkRecorder {
     } catch {
       this.ctx = new AudioContext()
     }
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
+
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
     await this.ctx.audioWorklet.addModule(url)
     URL.revokeObjectURL(url)
+
     const source = this.ctx.createMediaStreamSource(this.stream)
     this.node = new AudioWorkletNode(this.ctx, 'capture')
     this.node.port.onmessage = (e: MessageEvent<Float32Array>) => this.push(e.data)
+
+    // Worklet only runs when connected into the graph. Mute the output so speakers
+    // stay quiet (avoids feedback) without dropping the capture path.
+    this.silent = this.ctx.createGain()
+    this.silent.gain.value = 0
     source.connect(this.node)
-    // Do not connect to speakers — loopback makes echo-cancellation kill quiet speech.
+    this.node.connect(this.silent)
+    this.silent.connect(this.ctx.destination)
   }
 
   elapsedSec() {
@@ -78,10 +88,18 @@ export class ChunkRecorder {
     if (!this.ctx) return
     const rate = this.ctx.sampleRate
     if (this.frameSamples > rate * 0.5) this.flush()
-    this.node?.disconnect()
+    try {
+      this.node?.disconnect()
+      this.silent?.disconnect()
+    } catch {
+      /* already disconnected */
+    }
     this.stream?.getTracks().forEach((t) => t.stop())
     await this.ctx.close()
     this.ctx = undefined
+    this.node = undefined
+    this.silent = undefined
+    this.stream = undefined
   }
 
   private push(frame: Float32Array) {
@@ -122,10 +140,10 @@ function peak(samples: Float32Array): number {
   return p
 }
 
-/** Boosts quiet / low-level recordings so speech models hear them (up to 24x). */
+/** Boosts quiet / low-level recordings so speech models hear them (up to 32x). */
 function normalize(samples: Float32Array, p: number) {
   if (p <= 0) return
-  const gain = Math.min(24, 0.95 / p)
+  const gain = Math.min(32, 0.95 / p)
   if (gain <= 1) return
   for (let i = 0; i < samples.length; i++) samples[i] *= gain
 }

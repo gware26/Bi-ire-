@@ -7,8 +7,8 @@ import { cues, looksLikeStop } from '../lib/voice'
 import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
-const CHUNK_SEC = 15
-const SILENCE_PEAK = 0.003
+const CHUNK_SEC = 8
+const SILENCE_PEAK = 0.001
 const QUIET_WARN_SEC = 6
 
 interface Props {
