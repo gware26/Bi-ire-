@@ -149,8 +149,8 @@ export function Home(props: Props) {
                     ? 'Listening… say "start", tap, or press Space'
                     : 'Listening… say "start" or tap'
                   : shortcuts
-                    ? 'Tap or press Space to start'
-                    : 'Tap to start'}
+                    ? 'Tap Enable voice (top right), then say "start" — or press Space'
+                    : 'Tap Enable voice (top right), then say "start" — or tap Start'}
               </p>
             </div>
           </>

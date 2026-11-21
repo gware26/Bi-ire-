@@ -95,7 +95,6 @@ export type Command =
   | 'settings'
 
 const PATTERNS: [Command, RegExp][] = [
-  // Longer / more specific phrases first.
   ['quiz', /\b(start (the )?quiz|quiz me|test me)\b/],
   ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
   ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
@@ -109,7 +108,7 @@ const PATTERNS: [Command, RegExp][] = [
   ['ask', /\b((open |show |go to )?(the )?(ask|chat|tutor)|ask (a |the )?question|ask the tutor)\b/],
   ['plan', /\b((open |show |go to )?(my |the )?study plan|(open |show |go to )?plan)\b/],
   ['materials', /\b((open |show |go to )?(my |the )?(materials|files|slides)|materials|files|slides)\b/],
-  ['notes', /\b((open |show |go to )?(my |the )?notes|notes)\b/],
+  ['notes', /\b((open |show |go to )?(my |the )?notes)\b/],
   ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
   ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
   ['bookmark', /\b(bookmark|mark (this|that))\b/],
@@ -132,8 +131,7 @@ export function looksLikeStop(raw: string) {
   if (/\bsave (the |my )?note\b/.test(heard)) return true
   const words = heard.split(' ')
   const last = words[words.length - 1]
-  // Quiet ASR often mishears "over" as these.
-  if (!['over', 'ova', 'ober', 'oliver', 'other'].includes(last)) return false
+  if (!['over', 'ova', 'ober', 'oliver'].includes(last)) return false
   return words.length <= 4
 }
 
@@ -173,31 +171,100 @@ export function voiceCommandsSupported() {
   return Boolean(w.SpeechRecognition || w.webkitSpeechRecognition)
 }
 
+/** Ask for mic access once — Chrome SpeechRecognition is unreliable until permission is granted. */
+export async function unlockMicrophone(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    stream.getTracks().forEach((t) => t.stop())
+    return true
+  } catch {
+    return false
+  }
+}
+
 export class CommandListener {
   private rec: any = null
   private running = false
+  private generation = 0
   private fired = new Set<number>()
   private lastFire = 0
+  private lastShown = ''
 
   constructor(
     private onHeard: (cmd: Command | null, heard: string) => void,
     private onListening: (on: boolean) => void = () => {},
+    private onError: (message: string) => void = () => {},
   ) {}
+
+  get isRunning() {
+    return this.running
+  }
+
+  /** Unlock mic (if needed) then start continuous recognition. */
+  async enable() {
+    const ok = await unlockMicrophone()
+    if (!ok) {
+      this.onError('Microphone blocked. Allow the mic in the address bar, then try again.')
+      this.onListening(false)
+      return false
+    }
+    this.start()
+    return true
+  }
 
   start() {
     const w = window as any
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!SR || this.running) return
+    if (!SR) {
+      this.onError('Voice commands need Chrome or Edge.')
+      return
+    }
+    if (this.running) return
     this.running = true
-    this.bind(new SR())
+    this.spawn()
   }
 
-  private bind(rec: any) {
+  stop() {
+    this.running = false
+    this.generation++
+    const rec = this.rec
+    this.rec = null
+    try {
+      rec?.abort()
+    } catch {
+      /* ignore */
+    }
+    this.onListening(false)
+  }
+
+  private spawn() {
+    const w = window as any
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!SR || !this.running) return
+
+    const gen = ++this.generation
+    const rec = new SR()
+    this.rec = rec
+    this.fired.clear()
+
     rec.lang = 'en-US'
     rec.continuous = true
     rec.interimResults = true
     rec.maxAlternatives = 5
+
+    rec.onstart = () => {
+      if (gen !== this.generation) return
+      this.onListening(true)
+      this.onError('')
+    }
+
+    rec.onaudiostart = () => {
+      if (gen !== this.generation) return
+      this.onListening(true)
+    }
+
     rec.onresult = (e: any) => {
+      if (gen !== this.generation) return
       for (let i = e.resultIndex; i < e.results.length; i++) {
         let cmd: Command | null = null
         let heard = ''
@@ -209,47 +276,56 @@ export class CommandListener {
         }
         const cleaned = cleanHeard(heard)
         if (!cleaned) continue
-        // Always surface what Chrome heard so the student can tell the mic works.
-        this.onHeard(cmd, cleaned)
+
+        // Avoid re-render storms from identical interim text.
+        if (cleaned !== this.lastShown) {
+          this.lastShown = cleaned
+          this.onHeard(cmd, cleaned)
+        } else if (cmd) {
+          this.onHeard(cmd, cleaned)
+        }
+
         if (!cmd || this.fired.has(i) || Date.now() - this.lastFire < 900) continue
         this.fired.add(i)
         this.lastFire = Date.now()
         activeHandler?.(cmd)
       }
     }
-    rec.onaudiostart = () => this.onListening(true)
-    rec.onstart = () => this.onListening(true)
+
     rec.onerror = (e: any) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      if (gen !== this.generation) return
+      const err = String(e.error || '')
+      if (err === 'not-allowed' || err === 'service-not-allowed') {
         this.running = false
         this.onListening(false)
+        this.onError('Microphone blocked. Allow the mic in the address bar.')
+        return
+      }
+      // no-speech / aborted / network: let onend recreate the session
+      if (err === 'network') {
+        this.onError('Speech service offline. Check your internet, then tap Enable voice.')
       }
     }
+
     rec.onend = () => {
+      if (gen !== this.generation) return
       this.fired.clear()
-      if (this.running) setTimeout(() => this.running && safeStart(rec), 250)
-      else this.onListening(false)
+      if (!this.running) {
+        this.onListening(false)
+        return
+      }
+      // Always use a fresh instance — reusing a stopped SR often never hears again.
+      setTimeout(() => {
+        if (this.running && gen === this.generation) this.spawn()
+      }, 280)
     }
-    safeStart(rec)
-    this.rec = rec
-  }
 
-  stop() {
-    this.running = false
     try {
-      this.rec?.abort()
+      rec.start()
     } catch {
-      /* ignore */
+      setTimeout(() => {
+        if (this.running && gen === this.generation) this.spawn()
+      }, 400)
     }
-    this.rec = null
-    this.onListening(false)
-  }
-}
-
-function safeStart(rec: any) {
-  try {
-    rec.start()
-  } catch {
-    // already started
   }
 }

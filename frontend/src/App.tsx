@@ -30,6 +30,8 @@ export default function App() {
   const [demoMode, setDemoMode] = useState<boolean | null>(null)
   const [heard, setHeard] = useState('')
   const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const [voiceReady, setVoiceReady] = useState(false)
 
   useEffect(() => {
     const titles: Record<Screen['name'], string> = {
@@ -47,20 +49,27 @@ export default function App() {
 
   useEffect(() => {
     api.health().then((h) => setDemoMode(h.demo_mode)).catch(() => setDemoMode(null))
-    const listener = new CommandListener((cmd, text) => {
-      setHeard(text)
-      if (cmd) announce(`Heard: ${text}`)
-    }, setListening)
-    // Chrome often blocks SpeechRecognition until a click/key; arm on first gesture.
+    const listener = new CommandListener(
+      (cmd, text) => {
+        setHeard(text)
+        if (cmd) announce(`Heard: ${text}`)
+      },
+      setListening,
+      setVoiceError,
+    )
+    ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice = listener
+
+    // First click/key: unlock mic permission, then start recognition (Chrome needs both).
     const arm = () => {
-      listener.start()
+      void listener.enable().then((ok) => {
+        if (ok) setVoiceReady(true)
+      })
       window.removeEventListener('pointerdown', arm)
       window.removeEventListener('keydown', arm)
     }
     window.addEventListener('pointerdown', arm)
     window.addEventListener('keydown', arm)
-    listener.start()
-    ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice = listener
+
     return () => {
       window.removeEventListener('pointerdown', arm)
       window.removeEventListener('keydown', arm)
@@ -72,21 +81,27 @@ export default function App() {
   useEffect(() => {
     const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
     if (!voice) return
-    // Recording and SpeechRecognition cannot share the mic — stop commands while capturing,
-    // then start again on home/notes so "start" works.
+    // Recording owns the mic — pause commands; restore after if the user already enabled voice.
     if (screen.name === 'recording' || screen.name === 'speak') {
       voice.stop()
       setListening(false)
-    } else {
+    } else if (voiceReady) {
       voice.start()
     }
-  }, [screen])
+  }, [screen, voiceReady])
 
   useEffect(() => {
     if (!heard) return
     const t = setTimeout(() => setHeard(''), 2500)
     return () => clearTimeout(t)
   }, [heard])
+
+  async function enableVoice() {
+    const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
+    if (!voice) return
+    const ok = await voice.enable()
+    if (ok) setVoiceReady(true)
+  }
 
   const startClass = () => setScreen({ name: 'recording', key: Date.now() })
   const startSpeakNote = () => setScreen({ name: 'speak', key: Date.now() })
@@ -145,16 +160,37 @@ export default function App() {
           {demoMode && (
             <span className="rounded-md bg-highlight px-3 py-1 text-base font-bold text-on-highlight">Demo mode</span>
           )}
-          <span className="flex items-center gap-2 font-semibold text-muted-foreground">
-            {voiceOn && listening ? (
-              <Microphone aria-hidden="true" weight="bold" className="size-6 text-accent" />
-            ) : (
-              <MicrophoneSlash aria-hidden="true" weight="bold" className="size-6" />
+          <span className="flex flex-wrap items-center gap-3">
+            <span className="flex items-center gap-2 font-semibold text-muted-foreground">
+              {voiceOn && listening ? (
+                <Microphone aria-hidden="true" weight="bold" className="size-6 text-accent" />
+              ) : (
+                <MicrophoneSlash aria-hidden="true" weight="bold" className="size-6" />
+              )}
+              {!voiceOn
+                ? 'Voice needs Chrome or Edge'
+                : listening
+                  ? 'Listening'
+                  : 'Voice off'}
+            </span>
+            {voiceOn && !listening && screen.name !== 'recording' && screen.name !== 'speak' && (
+              <button
+                type="button"
+                onClick={() => void enableVoice()}
+                className="rounded-xl bg-accent px-4 py-2 text-base font-bold text-on-accent"
+              >
+                Enable voice
+              </button>
             )}
-            {!voiceOn ? 'Voice control needs Chrome or Edge' : listening ? 'Listening' : 'Voice control off'}
           </span>
         </span>
       </header>
+
+      {voiceError && (
+        <p role="alert" className="mx-6 mt-3 rounded-xl bg-destructive/15 px-4 py-3 text-lg font-semibold text-destructive">
+          {voiceError}
+        </p>
+      )}
 
       {heard && (
         <div

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { setCommandHandler, type Command } from './voice'
 
 export type Actions = Partial<Record<Command, () => void>>
@@ -16,16 +16,25 @@ function isInteractive(el: EventTarget | null) {
   return el instanceof HTMLElement && el.closest('button, a, input, select, textarea, [role="button"]') !== null
 }
 
-/** Binds voice commands and keyboard keys for the visible screen. Re-binds every render so handlers stay fresh. */
+/**
+ * Binds voice commands and keyboard keys for the visible screen.
+ * Handlers are kept in refs so React re-renders (e.g. the "Heard" toast) do not
+ * briefly clear the voice handler and drop spoken commands.
+ */
 export function useControls(commands: Actions, keys: Keys = {}) {
+  const commandsRef = useRef(commands)
+  const keysRef = useRef(keys)
+  commandsRef.current = commands
+  keysRef.current = keys
+
   useEffect(() => {
-    setCommandHandler((c) => commands[c]?.())
+    setCommandHandler((c) => commandsRef.current[c]?.())
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !shortcutsEnabled()) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       const key = e.key === ' ' ? 'Space' : e.key
       if ((key === 'Space' || key === 'Enter') && isInteractive(e.target)) return
-      const fn = keys[key]
+      const fn = keysRef.current[key]
       if (fn) {
         e.preventDefault()
         fn()
@@ -36,7 +45,7 @@ export function useControls(commands: Actions, keys: Keys = {}) {
       setCommandHandler(null)
       window.removeEventListener('keydown', onKey)
     }
-  })
+  }, [])
 }
 
 export function useStoredState<T>(key: string, initial: T) {
