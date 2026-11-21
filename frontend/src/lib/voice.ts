@@ -221,16 +221,17 @@ export class CommandListener {
     return this.running
   }
 
-  /** Unlock mic (if needed) then start continuous recognition. */
+  /** Unlock mic (if needed) then start continuous recognition. Always tries to listen. */
   async enable() {
     const ok = await unlockMicrophone()
     if (!ok) {
-      this.onError('Microphone blocked. Allow the mic in the address bar, then try again.')
-      this.onListening(false)
-      return false
+      this.onError('Allow the microphone in the address bar so voice commands work.')
+    } else {
+      this.onError('')
     }
+    // Start recognition even if getUserMedia was blocked — Chrome may still prompt via SpeechRecognition.
     this.start()
-    return true
+    return ok
   }
 
   start() {

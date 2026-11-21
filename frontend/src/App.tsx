@@ -31,7 +31,6 @@ export default function App() {
   const [heard, setHeard] = useState('')
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState('')
-  const [voiceReady, setVoiceReady] = useState(false) // set after first click unlocks the mic
 
   useEffect(() => {
     const titles: Record<Screen['name'], string> = {
@@ -58,21 +57,10 @@ export default function App() {
       setVoiceError,
     )
     ;(window as unknown as { __biireVoice?: CommandListener }).__biireVoice = listener
-
-    // First click/key: unlock mic permission, then start recognition (Chrome needs both).
-    const arm = () => {
-      void listener.enable().then((ok) => {
-        if (ok) setVoiceReady(true)
-      })
-      window.removeEventListener('pointerdown', arm)
-      window.removeEventListener('keydown', arm)
-    }
-    window.addEventListener('pointerdown', arm)
-    window.addEventListener('keydown', arm)
+    // Voice on by default as soon as the app loads.
+    void listener.enable()
 
     return () => {
-      window.removeEventListener('pointerdown', arm)
-      window.removeEventListener('keydown', arm)
       delete (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
       listener.stop()
     }
@@ -81,14 +69,14 @@ export default function App() {
   useEffect(() => {
     const voice = (window as unknown as { __biireVoice?: CommandListener }).__biireVoice
     if (!voice) return
-    // Recording owns the mic — pause commands; restore after if the user already enabled voice.
+    // Recording owns the mic — pause commands, then turn voice back on afterward.
     if (screen.name === 'recording' || screen.name === 'speak') {
       voice.stop()
       setListening(false)
-    } else if (voiceReady) {
-      voice.start()
+    } else {
+      void voice.enable()
     }
-  }, [screen, voiceReady])
+  }, [screen])
 
   useEffect(() => {
     if (!heard) return
