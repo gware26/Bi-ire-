@@ -1,7 +1,10 @@
 ﻿import { useEffect, useState } from 'react'
-import { BookOpenText, CaretRight, Check, GearSix, Microphone, type Icon } from '@phosphor-icons/react'
+import { BookOpenText, CaretRight, Check, GearSix, Microphone, PencilSimple } from '@phosphor-icons/react'
 import { api, type Lang, type NoteSummary } from '../lib/api'
 import { useControls } from '../lib/hooks'
+import { announce } from '../lib/announce'
+import { TabBar, type TabDef } from '../components/TabBar'
+import { BigButton } from '../components/BigButton'
 
 const LANG_LABELS: [Lang, string][] = [
   ['en', 'English'],
@@ -13,7 +16,7 @@ export const ANSWER_TIMES = [8, 15, 30]
 
 type Tab = 'start' | 'notebooks' | 'settings'
 
-const TABS: { id: Tab; label: string; icon: Icon }[] = [
+const TABS: TabDef<Tab>[] = [
   { id: 'start', label: 'Start', icon: Microphone },
   { id: 'notebooks', label: 'Notebooks', icon: BookOpenText },
   { id: 'settings', label: 'Settings', icon: GearSix },
@@ -30,10 +33,11 @@ interface Props {
   setShortcuts: (on: boolean) => void
   listening: boolean
   onStart: () => void
+  onSpeakNote: () => void
   onOpenNote: (id: number) => void
 }
 
-function Toggle({ pressed, onClick, children, lang }: { pressed: boolean; onClick: () => void; children: string; lang?: string }) {
+export function Toggle({ pressed, onClick, children, lang }: { pressed: boolean; onClick: () => void; children: string; lang?: string }) {
   return (
     <button
       type="button"
@@ -69,15 +73,57 @@ function Wave({ on }: { on: boolean }) {
 }
 
 export function Home(props: Props) {
-  const { course, setCourse, lang, setLang, answerSec, setAnswerSec, shortcuts, setShortcuts, listening, onStart, onOpenNote } = props
+  const {
+    course,
+    setCourse,
+    lang,
+    setLang,
+    answerSec,
+    setAnswerSec,
+    shortcuts,
+    setShortcuts,
+    listening,
+    onStart,
+    onSpeakNote,
+    onOpenNote,
+  } = props
   const [tab, setTab] = useState<Tab>('start')
   const [notes, setNotes] = useState<NoteSummary[]>([])
 
   useEffect(() => {
     api.listNotes().then(setNotes).catch(() => setNotes([]))
-  }, [])
+  }, [tab])
 
-  useControls({ start: onStart }, { Space: onStart, Enter: onStart })
+  function goTab(next: Tab, label: string) {
+    setTab(next)
+    announce(label)
+  }
+
+  useControls(
+    {
+      start: onStart,
+      speaknote: () => {
+        setTab('notebooks')
+        onSpeakNote()
+      },
+      starttab: () => goTab('start', 'Start'),
+      notebooks: () => goTab('notebooks', 'Notebooks'),
+      settings: () => goTab('settings', 'Settings'),
+    },
+    tab === 'start'
+      ? { Space: onStart, Enter: onStart }
+      : tab === 'notebooks'
+        ? { Space: onSpeakNote, n: onSpeakNote }
+        : {},
+  )
+
+  const notebooks = notes.reduce<{ course: string; notes: NoteSummary[] }[]>((groups, n) => {
+    const courseName = n.course_name || 'My notes'
+    const g = groups.find((x) => x.course === courseName)
+    if (g) g.notes.push(n)
+    else groups.push({ course: courseName, notes: [n] })
+    return groups
+  }, [])
 
   return (
     <>
@@ -111,31 +157,58 @@ export function Home(props: Props) {
         )}
 
         {tab === 'notebooks' && (
-          <section aria-labelledby="notebooks-title" className="flex flex-col gap-4">
+          <section aria-labelledby="notebooks-title" className="flex flex-col gap-5">
             <h1 id="notebooks-title" className="flex items-center gap-2 text-3xl font-bold">
               <BookOpenText aria-hidden="true" weight="bold" className="size-8" />
               Your notebooks
             </h1>
+            <p className="text-xl text-muted-foreground">
+              Speak a note with your voice and Biʼire saves it here, next to your lecture notes.
+            </p>
+            <BigButton
+              tone="accent"
+              icon={PencilSimple}
+              onClick={onSpeakNote}
+              hint={shortcuts ? 'Say "take a note", tap, or press Space' : 'Say "take a note" or tap'}
+              className="min-h-[22vh]"
+            >
+              Speak a note
+            </BigButton>
+
             {notes.length === 0 ? (
-              <p className="text-xl text-muted-foreground">No notes yet. Start a class and your notes will appear here.</p>
+              <p className="rounded-2xl border-2 border-dashed border-border p-6 text-xl text-muted-foreground">
+                No notes yet. Speak a note, or start a class.
+              </p>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {notes.map((n) => (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenNote(n.id)}
-                      className="flex min-h-16 w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-muted px-5 py-3 text-left text-xl transition-colors duration-200 hover:bg-border"
-                    >
-                      <span className="font-semibold">{n.title}</span>
-                      <span className="flex items-center gap-2 text-muted-foreground">
-                        {n.course_name} · {new Date(n.created_at * 1000).toLocaleDateString()}
-                        <CaretRight aria-hidden="true" weight="bold" className="size-5" />
+              <div className="flex flex-col gap-6">
+                {notebooks.map((nb) => (
+                  <section key={nb.course} aria-labelledby={`nb-${nb.course}`}>
+                    <h2 id={`nb-${nb.course}`} className="mb-3 text-2xl font-bold text-primary">
+                      {nb.course}
+                      <span className="ml-2 text-lg font-medium text-muted-foreground">
+                        {nb.notes.length} {nb.notes.length === 1 ? 'note' : 'notes'}
                       </span>
-                    </button>
-                  </li>
+                    </h2>
+                    <ul className="flex flex-col gap-2">
+                      {nb.notes.map((n) => (
+                        <li key={n.id}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenNote(n.id)}
+                            className="flex min-h-16 w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-muted px-5 py-3 text-left text-xl transition-colors duration-200 hover:bg-border"
+                          >
+                            <span className="font-semibold">{n.title}</span>
+                            <span className="flex items-center gap-2 text-muted-foreground">
+                              {new Date(n.created_at * 1000).toLocaleDateString()}
+                              <CaretRight aria-hidden="true" weight="bold" className="size-5" />
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 ))}
-              </ul>
+              </div>
             )}
           </section>
         )}
@@ -147,15 +220,23 @@ export function Home(props: Props) {
               Class setup
             </h1>
             <div className="grid gap-6 md:grid-cols-2">
-              <label className="flex min-w-0 flex-col gap-2 text-xl font-semibold">
-                Course
+              <div className="flex min-w-0 flex-col gap-2">
+                <label htmlFor="course" className="text-xl font-semibold">
+                  Course (optional)
+                </label>
                 <input
+                  id="course"
                   value={course}
                   onChange={(e) => setCourse(e.target.value)}
                   autoComplete="off"
-                  className="min-h-14 w-full min-w-0 rounded-xl border-2 border-border bg-background px-4 text-2xl text-foreground"
+                  placeholder="Detected automatically"
+                  aria-describedby="course-hint"
+                  className="min-h-14 w-full min-w-0 rounded-xl border-2 border-border bg-background px-4 text-2xl text-foreground placeholder:text-muted-foreground"
                 />
-              </label>
+                <p id="course-hint" className="text-base text-muted-foreground">
+                  Leave empty and Biʼire will work out the subject from the lecture.
+                </p>
+              </div>
               <fieldset className="flex min-w-0 flex-col gap-2">
                 <legend className="mb-2 text-xl font-semibold">Notes language</legend>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -192,28 +273,7 @@ export function Home(props: Props) {
         )}
       </main>
 
-      <nav aria-label="Home sections" className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-border bg-card">
-        <ul className="mx-auto grid max-w-4xl grid-cols-3">
-          {TABS.map(({ id, label, icon: TabIcon }) => {
-            const current = tab === id
-            return (
-              <li key={id}>
-                <button
-                  type="button"
-                  aria-current={current ? 'page' : undefined}
-                  onClick={() => setTab(id)}
-                  className={`flex min-h-16 w-full flex-col items-center justify-center gap-1 py-2 text-base font-bold transition-colors duration-200 ${
-                    current ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <TabIcon aria-hidden="true" weight={current ? 'fill' : 'bold'} className="size-7" />
-                  {label}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+      <TabBar label="Home sections" tabs={TABS} current={tab} onChange={setTab} />
     </>
   )
 }

@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.db
+**/.env
+**/.git
+**/.cursor
+frontend/public/__test_speech.wav

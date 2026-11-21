@@ -76,6 +76,8 @@
     color: var(--color-foreground);
     scroll-behavior: smooth;
     scroll-padding-top: 1.5rem;
+    /* WCAG 2.4.11: keep focused items clear of the fixed bottom tab bar. */
+    scroll-padding-bottom: 6rem;
   }
 
   body {

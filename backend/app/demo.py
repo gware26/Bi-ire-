@@ -23,13 +23,28 @@ def transcribe(seq: int) -> dict:
     return {"text": text, "languages": langs}
 
 
-def notes(segments: list[dict]) -> dict:
+def notes(segments: list[dict], mode: str = "lecture") -> dict:
     ids = [s["id"] for s in segments]
 
     def src(*positions: int) -> list[int]:
         return [ids[p] for p in positions if p < len(ids)]
 
+    if mode == "dictation":
+        return {
+            "subject": "My notes",
+            "title": "Spoken study note",
+            "summary": " ".join(s["text"] for s in segments[:2]) or "A short spoken note from the student.",
+            "definitions": [],
+            "takeaways": [
+                {"text": s["text"][:160], "source_ids": [s["id"]]}
+                for s in segments[:3]
+            ]
+            or [{"text": "Remember to review this before the exam.", "source_ids": src(0)}],
+            "exam_hints": [],
+        }
+
     return {
+        "subject": "Data Structures",
         "title": "Stacks and Queues",
         "summary": (
             "A stack is a linear data structure where the last element added is the first removed (LIFO). "
@@ -62,3 +77,60 @@ def quiz() -> list[dict]:
 
 def grade(expected: str) -> dict:
     return {"heard": "(demo mode: answer received)", "correct": True, "feedback": f"Correct! {expected}"}
+
+
+def _first_ids(note: dict, n: int = 2) -> list[int]:
+    return [s["id"] for s in note["segments"][:n]]
+
+
+def material_links(note: dict) -> dict:
+    return {
+        "summary": "Lecture slides on stacks and queues with diagrams and code examples.",
+        "links": [
+            {"point": "The slides show the same LIFO stack diagram the lecturer described.", "source_ids": _first_ids(note)},
+            {"point": "The slides list push and pop with array code, matching the lecture.", "source_ids": _first_ids(note, 3)[-1:]},
+        ],
+        "extra": ["The slides add a third stack operation, peek, which reads the top without removing it."],
+    }
+
+
+def flashcards(note: dict) -> list[dict]:
+    ids = _first_ids(note, 8)
+    pick = lambda i: ids[i : i + 1]  # noqa: E731
+    return [
+        {"front": "What does LIFO mean?", "back": "Last in, first out: the last element added is removed first.", "source": "lecture", "source_ids": pick(1)},
+        {"front": "Which structure uses FIFO?", "back": "A queue: first in, first out.", "source": "lecture", "source_ids": pick(3)},
+        {"front": "What does push do?", "back": "Adds an element to the top of a stack.", "source": "lecture", "source_ids": pick(2)},
+        {"front": "What does dequeue do?", "back": "Removes the element at the front of a queue.", "source": "lecture", "source_ids": pick(4)},
+        {"front": "Real-world stack example?", "back": "The undo button in a text editor.", "source": "lecture", "source_ids": pick(6)},
+        {"front": "Stack vs queue (exam!)", "back": "A stack removes the newest item (LIFO); a queue removes the oldest (FIFO).", "source": "lecture", "source_ids": pick(5)},
+    ]
+
+
+def study_plan(days: int, minutes: int) -> dict:
+    topics = ["Stacks: LIFO, push and pop", "Queues: FIFO, enqueue and dequeue", "Stack vs queue (exam hint)", "Real examples and implementation"]
+    plan = []
+    for d in range(1, days + 1):
+        last = d == days
+        plan.append(
+            {
+                "day": d,
+                "focus": "Full review" if last else topics[(d - 1) % len(topics)],
+                "minutes": minutes,
+                "tasks": (
+                    ["Listen to the notes", "Flashcards: all cards", "Voice quiz"]
+                    if last
+                    else ["Listen to the notes", "Flashcards", "Ask the tutor one question about today's topic"]
+                ),
+            }
+        )
+    return {"goal": "Explain stacks and queues and their difference confidently in the exam.", "days": plan}
+
+
+def chat(question: str) -> dict:
+    return {
+        "heard": question or "(demo mode: spoken question)",
+        "answer": "A stack is like a pile of plates: you take the last plate you put on top. That is LIFO, last in, first out. A queue is like a line at a shop: the first person in line is served first.",
+        "source_ids": [],
+        "materials": [],
+    }

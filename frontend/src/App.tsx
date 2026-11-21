@@ -7,21 +7,23 @@ import { CommandListener, cues, speak, voiceCommandsSupported } from './lib/voic
 import { BigButton } from './components/BigButton'
 import { Home } from './screens/Home'
 import { Recording } from './screens/Recording'
-import { Notes } from './screens/Notes'
+import { SpeakNote } from './screens/SpeakNote'
+import { Study } from './screens/Study'
 import { Quiz } from './screens/Quiz'
 
 type Screen =
   | { name: 'home' }
   | { name: 'recording'; key: number }
-  | { name: 'processing'; sessionId: number }
+  | { name: 'speak'; key: number }
+  | { name: 'processing'; sessionId: number; mode: 'lecture' | 'dictation' }
   | { name: 'notes' }
   | { name: 'quiz' }
-  | { name: 'error'; message: string; retrySessionId?: number }
+  | { name: 'error'; message: string; retrySessionId?: number; retryMode?: 'lecture' | 'dictation' }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' })
   const [lang, setLang] = useStoredState<Lang>('ln.lang', 'en')
-  const [course, setCourse] = useStoredState('ln.course', 'Data Structures')
+  const [course, setCourse] = useStoredState('ln.course.v2', '')
   const [note, setNote] = useState<Note | null>(null)
   const [answerSec, setAnswerSec] = useStoredState('ln.answerSec', 15)
   const [shortcuts, setShortcuts] = useStoredState(SHORTCUTS_KEY, true)
@@ -33,7 +35,8 @@ export default function App() {
     const titles: Record<Screen['name'], string> = {
       home: 'Start a lecture',
       recording: 'Recording',
-      processing: 'Building notes',
+      speak: 'Speak a note',
+      processing: 'Saving note',
       notes: note?.title ?? 'Notes',
       quiz: 'Quiz',
       error: 'Error',
@@ -59,19 +62,30 @@ export default function App() {
   }, [heard])
 
   const startClass = () => setScreen({ name: 'recording', key: Date.now() })
+  const startSpeakNote = () => setScreen({ name: 'speak', key: Date.now() })
 
-  async function buildNotes(sessionId: number) {
-    setScreen({ name: 'processing', sessionId })
+  async function buildNotes(sessionId: number, mode: 'lecture' | 'dictation' = 'lecture') {
+    setScreen({ name: 'processing', sessionId, mode })
     try {
-      const n = await api.endSession(sessionId, lang)
+      const n = await api.endSession(sessionId, lang, mode)
       setNote(n)
       setScreen({ name: 'notes' })
       cues.correct()
-      announce(`Your notes are ready: ${n.title}`)
-      speak(`Your notes are ready: ${n.title}. Say "read notes" or "quiz me".`, 'en')
+      announce(`Saved to ${n.course_name}: ${n.title}`)
+      speak(
+        mode === 'dictation'
+          ? `Your note is saved in ${n.course_name}: ${n.title}.`
+          : `Your notes are ready: ${n.title}. Say "read notes", "quiz me", or "flashcards".`,
+        'en',
+      )
     } catch (e) {
       cues.error()
-      setScreen({ name: 'error', message: e instanceof Error ? e.message : 'Could not build notes', retrySessionId: sessionId })
+      setScreen({
+        name: 'error',
+        message: e instanceof Error ? e.message : 'Could not save notes',
+        retrySessionId: sessionId,
+        retryMode: mode,
+      })
     }
   }
 
@@ -137,6 +151,7 @@ export default function App() {
           setShortcuts={setShortcuts}
           listening={listening}
           onStart={startClass}
+          onSpeakNote={startSpeakNote}
           onOpenNote={openNote}
         />
       )}
@@ -145,8 +160,19 @@ export default function App() {
         <Recording
           key={screen.key}
           course={course}
-          onFinished={buildNotes}
+          onFinished={(id) => buildNotes(id, 'lecture')}
           onFailed={(message) => setScreen({ name: 'error', message })}
+          onHome={() => setScreen({ name: 'home' })}
+        />
+      )}
+
+      {screen.name === 'speak' && (
+        <SpeakNote
+          key={screen.key}
+          course={course}
+          onFinished={(id) => buildNotes(id, 'dictation')}
+          onFailed={(message) => setScreen({ name: 'error', message })}
+          onHome={() => setScreen({ name: 'home' })}
         />
       )}
 
@@ -158,13 +184,26 @@ export default function App() {
           className="flex min-h-[80vh] flex-col items-center justify-center gap-6 p-6 text-center"
         >
           <div aria-hidden="true" className="size-20 animate-spin rounded-full border-8 border-muted border-t-primary" />
-          <h1 className="text-4xl font-bold">Building your notes…</h1>
-          <p className="text-2xl text-muted-foreground">Definitions, exam hints and takeaways</p>
+          <h1 className="text-4xl font-bold">
+            {screen.mode === 'dictation' ? 'Saving your note…' : 'Building your notes…'}
+          </h1>
+          <p className="text-2xl text-muted-foreground">
+            {screen.mode === 'dictation'
+              ? 'Cleaning up what you said and filing it in your notebooks'
+              : 'Definitions, exam hints and takeaways'}
+          </p>
         </main>
       )}
 
       {screen.name === 'notes' && note && (
-        <Notes note={note} onQuiz={() => setScreen({ name: 'quiz' })} onNewClass={startClass} onHome={() => setScreen({ name: 'home' })} />
+        <Study
+          key={note.id}
+          note={note}
+          answerSec={answerSec}
+          onQuiz={() => setScreen({ name: 'quiz' })}
+          onNewClass={startClass}
+          onHome={() => setScreen({ name: 'home' })}
+        />
       )}
 
       {screen.name === 'quiz' && note && (
@@ -183,7 +222,7 @@ export default function App() {
           {screen.retrySessionId !== undefined && (
             <BigButton
               icon={ArrowClockwise}
-              onClick={() => buildNotes(screen.retrySessionId!)}
+              onClick={() => buildNotes(screen.retrySessionId!, screen.retryMode ?? 'lecture')}
               hint="Your recording is saved"
             >
               Try again

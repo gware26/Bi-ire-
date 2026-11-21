@@ -4,6 +4,7 @@ In demo mode every function returns scripted data from `demo.py`, so the full
 flow works on stage even with no network or API key.
 """
 
+import asyncio
 import base64
 import json
 import ssl
@@ -48,6 +49,22 @@ def _audio_part(audio: bytes, mime: str) -> dict:
     return {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}}
 
 
+async def _post_with_reconnect(client: httpx.AsyncClient, model: str, body: dict) -> httpx.Response:
+    """Posts once more after a short pause if the connection drops (flaky venue Wi-Fi)."""
+    for attempt in range(2):
+        try:
+            return await client.post(
+                GEMINI_URL.format(model=model),
+                headers={"x-goog-api-key": config.GEMINI_API_KEY},
+                json=body,
+            )
+        except httpx.ConnectError:
+            if attempt:
+                raise
+            await asyncio.sleep(2)
+    raise AssertionError("unreachable")
+
+
 async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> dict:
     body = {
         "contents": [{"role": "user", "parts": parts}],
@@ -66,11 +83,10 @@ async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2) -> 
     async with httpx.AsyncClient(timeout=config.GEMINI_TIMEOUT, verify=SSL_CONTEXT) as client:
         for model in ready:
             try:
-                r = await client.post(
-                    GEMINI_URL.format(model=model),
-                    headers={"x-goog-api-key": config.GEMINI_API_KEY},
-                    json=body,
-                )
+                r = await _post_with_reconnect(client, model, body)
+            except httpx.ConnectError as e:
+                # No route to Google at all: every other model would fail the same way.
+                raise AIError("No internet connection to Google Gemini. Check the Wi-Fi and try again.") from e
             except httpx.HTTPError as e:
                 errors.append(f"{model}: {type(e).__name__}")
                 continue
@@ -134,6 +150,7 @@ _ITEM = {
 NOTES_SCHEMA = {
     "type": "OBJECT",
     "properties": {
+        "subject": {"type": "STRING"},
         "title": {"type": "STRING"},
         "summary": {"type": "STRING"},
         "definitions": {
@@ -151,26 +168,74 @@ NOTES_SCHEMA = {
         "takeaways": {"type": "ARRAY", "items": _ITEM},
         "exam_hints": {"type": "ARRAY", "items": _ITEM},
     },
-    "required": ["title", "summary", "definitions", "takeaways", "exam_hints"],
+    "required": ["subject", "title", "summary", "definitions", "takeaways", "exam_hints"],
 }
 
 
-async def make_notes(segments: list[dict], bookmarked_ids: set[int], out_lang: str, course: str) -> dict:
+async def make_notes(
+    segments: list[dict],
+    bookmarked_ids: set[int],
+    out_lang: str,
+    course: str,
+    known_subjects: list[str] = (),
+    mode: str = "lecture",
+) -> dict:
     if config.DEMO_MODE:
-        return demo.notes(segments)
+        return demo.notes(segments, mode=mode)
     lines = "\n".join(
         f"[{s['id']}]{' (BOOKMARKED BY STUDENT)' if s['id'] in bookmarked_ids else ''} {s['text']}" for s in segments
     )
+    known = ", ".join(f'"{s}"' for s in known_subjects) or "none yet"
+    if mode == "dictation":
+        if course:
+            context = (
+                f'The student dictated a personal notebook entry for the course "{course}". '
+                "Clean it up into structured study notes."
+            )
+            subject_rule = f'- "subject": "{course}".'
+        else:
+            context = (
+                "The student dictated a personal notebook entry (not a classroom lecture). "
+                "Clean it up into structured study notes."
+            )
+            subject_rule = (
+                '- "subject": the notebook this belongs in, in English, 1-4 words, Title Case '
+                '(e.g. "My notes", "Biology", "Exam Prep"). '
+                f"Existing notebooks: {known}. Reuse one only when it clearly fits; otherwise name a new one."
+            )
+        extra = (
+            '- "summary": 2-4 short sentences that capture what the student said, cleaned up for reading aloud.\n'
+            '- "takeaways": the main points the student wanted to remember.\n'
+            '- "definitions": any terms they defined; empty if none.\n'
+            '- "exam_hints": things they marked as important for an exam; empty if none.\n'
+            "- Use ONLY what the student said. Never invent content."
+        )
+    else:
+        if course:
+            context = f'Turn this lecture transcript from the course "{course}" into structured study notes.'
+            subject_rule = f'- "subject": "{course}".'
+        else:
+            context = "Turn this lecture transcript into structured study notes. The course was not given."
+            subject_rule = (
+                '- "subject": the academic subject or course this lecture belongs to, in English, 1-4 words, '
+                'Title Case (e.g. "Data Structures", "Human Anatomy", "Ethiopian History"). '
+                f"Existing subjects: {known}. Reuse one of those exact names ONLY if this lecture is clearly part of "
+                "that same subject; otherwise name a new subject. Never force an unrelated lecture into an existing one."
+            )
+        extra = (
+            '- "exam_hints": things the lecturer flagged as important or likely on the exam (in any language), '
+            "repeated points, and lines the student bookmarked.\n"
+            '- "summary": 2-4 short sentences that can be read aloud.\n'
+            "- Use ONLY information in the transcript. Never add facts the lecturer did not say."
+        )
     prompt = f"""You are an assistant for a student with a motor disability who cannot take notes by hand.
-Turn this lecture transcript from the course "{course}" into structured study notes.
+{context}
 
 Rules:
+{subject_rule}
 - Write everything in {_lang(out_lang)}. Keep English technical terms in English (in brackets if needed).
-- Use ONLY information in the transcript. Never add facts the lecturer did not say.
 - Every definition, takeaway and exam hint must cite the [id] numbers of the transcript lines it came from in "source_ids".
-- "exam_hints": things the lecturer flagged as important or likely on the exam (in any language), repeated points,
-  and lines the student bookmarked.
-- "summary": 2-4 short sentences that can be read aloud.
+{extra}
 - Keep each item short enough to be read aloud in under 15 seconds.
 
 Transcript:

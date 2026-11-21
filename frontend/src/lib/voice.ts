@@ -73,16 +73,48 @@ export const cues = {
 
 // ---------- Voice commands (English wake phrases via the Web Speech API) ----------
 
-export type Command = 'start' | 'stop' | 'bookmark' | 'quiz' | 'read' | 'done' | 'home'
+export type Command =
+  | 'start'
+  | 'stop'
+  | 'bookmark'
+  | 'quiz'
+  | 'read'
+  | 'done'
+  | 'home'
+  | 'flip'
+  | 'next'
+  | 'previous'
+  | 'notes'
+  | 'cards'
+  | 'ask'
+  | 'plan'
+  | 'materials'
+  | 'speaknote'
+  | 'starttab'
+  | 'notebooks'
+  | 'settings'
 
 const PATTERNS: [Command, RegExp][] = [
+  // More specific phrases first so they win over short navigation words.
   ['start', /\b(start|begin) (the )?(class|lecture|recording)\b/],
-  ['stop', /\b(end|stop|finish) (the )?(class|lecture|recording)\b/],
+  ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
+  ['stop', /\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
   ['bookmark', /\b(bookmark|mark (this|that))\b/],
   ['quiz', /\b(start (the )?quiz|quiz me|test me)\b/],
   ['read', /\bread (my |the )?notes\b/],
   ['done', /\b(i'?m done|that'?s my answer|next question)\b/],
-  ['home', /\b(go home|main menu)\b/],
+  ['home', /\b(go home|main menu|home screen)\b/],
+  ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
+  ['next', /\bnext( card| one)?\b/],
+  ['previous', /\b(previous|last card|go back)( card| one)?\b/],
+  ['cards', /\b((open |show |go to )?(the )?flash ?cards?|(open |show |go to )?cards)\b/],
+  ['ask', /\b((open |show |go to )?(the )?(ask|chat|tutor)|ask (a |the )?question|ask the tutor)\b/],
+  ['plan', /\b((open |show |go to )?(my |the )?study plan|(open |show |go to )?plan)\b/],
+  ['materials', /\b((open |show |go to )?(my |the )?(materials|files|slides)|materials|files|slides)\b/],
+  ['notes', /\b((open |show |go to )?(my |the )?notes|notes)\b/],
+  ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
+  ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
+  ['starttab', /\b((go to |open |show )?(the )?start( tab| screen)?|start tab)\b/],
 ]
 
 type Handler = (c: Command) => void

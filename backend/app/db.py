@@ -52,6 +52,31 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
     feedback TEXT,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS materials (
+    id INTEGER PRIMARY KEY,
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    filename TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    analysis TEXT,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS study_items (
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (note_id, kind)
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY,
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    sources TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
 """
 
 

@@ -17,6 +17,7 @@ interface Props {
   course: string
   onFinished: (sessionId: number) => void
   onFailed: (message: string) => void
+  onHome: () => void
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -38,7 +39,7 @@ function LevelWave({ level }: { level: number }) {
   )
 }
 
-export function Recording({ course, onFinished, onFailed }: Props) {
+export function Recording({ course, onFinished, onFailed, onHome }: Props) {
   const [phase, setPhase] = useState<'starting' | 'recording' | 'finishing'>('starting')
   const [segments, setSegments] = useState<Segment[]>([])
   const [bookmarks, setBookmarks] = useState<number[]>([])
@@ -153,7 +154,7 @@ export function Recording({ course, onFinished, onFailed }: Props) {
   }
 
   useControls(
-    { bookmark: () => bookmark('voice'), stop: finish },
+    { bookmark: () => bookmark('voice'), stop: finish, home: onHome },
     { Space: () => bookmark('key'), b: () => bookmark('key'), Enter: finish, Escape: finish },
   )
 
@@ -168,7 +169,7 @@ export function Recording({ course, onFinished, onFailed }: Props) {
             className={`size-5 shrink-0 rounded-full ${phase === 'recording' ? 'animate-pulse bg-destructive' : 'bg-muted-foreground'}`}
           />
           <span aria-live="polite">
-            {phase === 'starting' ? 'Starting…' : phase === 'finishing' ? 'Saving last words…' : `Recording · ${course}`}
+            {phase === 'starting' ? 'Starting…' : phase === 'finishing' ? 'Saving last words…' : course.trim() ? `Recording · ${course.trim()}` : 'Recording'}
           </span>
         </h1>
         <span className="flex items-center gap-4">

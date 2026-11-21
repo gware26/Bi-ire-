@@ -21,5 +21,7 @@ GEMINI_FALLBACK_MODELS = [
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "45"))
 DEMO_MODE = os.getenv("DEMO_MODE", "0").lower() in {"1", "true", "yes"} or not GEMINI_API_KEY
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "lissannote.db")))
+# Built Vite app (production). Empty in local `npm run dev` (Vite proxies /api).
+FRONTEND_DIST = Path(os.getenv("FRONTEND_DIST", str(BASE_DIR.parent / "frontend" / "dist")))
 
 LANGS = {"en": "English", "am": "Amharic", "om": "Afaan Oromo"}

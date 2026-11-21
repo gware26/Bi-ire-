@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { setCommandHandler, type Command } from './voice'
 
-type Actions = Partial<Record<Command, () => void>>
+export type Actions = Partial<Record<Command, () => void>>
 type Keys = Record<string, () => void>
 
 export const SHORTCUTS_KEY = 'ln.shortcuts'

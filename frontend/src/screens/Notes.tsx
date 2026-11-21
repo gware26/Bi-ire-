@@ -15,12 +15,15 @@ import {
   type Icon,
 } from '@phosphor-icons/react'
 import type { Note } from '../lib/api'
-import { useControls } from '../lib/hooks'
+import { useControls, type Actions } from '../lib/hooks'
 import { hasVoice, speak, stopSpeaking } from '../lib/voice'
 import { BigButton } from '../components/BigButton'
 
 interface Props {
   note: Note
+  /** Transcript part to open and focus on arrival (from a source link in another study tab). */
+  initialFocus?: number | null
+  extraCommands?: Actions
   onQuiz: () => void
   onNewClass: () => void
   onHome: () => void
@@ -36,7 +39,7 @@ function notesScript(note: Note) {
   return parts.join('\n')
 }
 
-function Sources({ ids, onOpen }: { ids: number[]; onOpen: (id: number) => void }) {
+export function Sources({ ids, onOpen }: { ids: number[]; onOpen: (id: number) => void }) {
   if (!ids.length) return null
   return (
     <span className="ml-2 inline-flex flex-wrap gap-2 align-middle">
@@ -77,10 +80,10 @@ function NoteSection(props: { title: string; icon: Icon; tone: keyof typeof SECT
   )
 }
 
-export function Notes({ note, onQuiz, onNewClass, onHome }: Props) {
+export function Notes({ note, initialFocus = null, extraCommands = {}, onQuiz, onNewClass, onHome }: Props) {
   const [reading, setReading] = useState(false)
-  const [showTranscript, setShowTranscript] = useState(false)
-  const [focusSegment, setFocusSegment] = useState<number | null>(null)
+  const [showTranscript, setShowTranscript] = useState(initialFocus !== null)
+  const [focusSegment, setFocusSegment] = useState<number | null>(initialFocus)
 
   async function toggleRead() {
     if (reading) {
@@ -99,7 +102,7 @@ export function Notes({ note, onQuiz, onNewClass, onHome }: Props) {
   }
 
   useControls(
-    { read: toggleRead, quiz: startQuiz, start: onNewClass, home: onHome },
+    { ...extraCommands, read: toggleRead, quiz: startQuiz, start: onNewClass, home: onHome },
     { Space: toggleRead, q: startQuiz, n: onNewClass, h: onHome },
   )
 
@@ -123,7 +126,7 @@ export function Notes({ note, onQuiz, onNewClass, onHome }: Props) {
   )
 
   return (
-    <main id="main" tabIndex={-1} className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 p-4 md:p-6">
+    <div className="flex flex-col gap-5">
       <header className="rounded-2xl border-2 border-border bg-card p-6">
         <p className="text-lg font-semibold text-muted-foreground">{note.course_name}</p>
         <h1 lang={note.out_lang} className="text-4xl font-bold">
@@ -241,6 +244,6 @@ export function Notes({ note, onQuiz, onNewClass, onHome }: Props) {
         <ArrowLeft aria-hidden="true" weight="bold" className="size-5" />
         Home (H)
       </button>
-    </main>
+    </div>
   )
 }

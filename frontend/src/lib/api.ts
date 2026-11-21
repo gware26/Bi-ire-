@@ -54,6 +54,43 @@ export interface QuizResult {
   expected: string
 }
 
+export interface MaterialAnalysis {
+  summary: string
+  links: { point: string; source_ids: number[] }[]
+  extra: string[]
+}
+
+export interface Material {
+  id: number
+  filename: string
+  mime: string
+  size: number
+  analysis: MaterialAnalysis | null
+  created_at: number
+  warning?: string | null
+}
+
+export interface Flashcard {
+  front: string
+  back: string
+  source: string
+  source_ids: number[]
+}
+
+export interface StudyPlan {
+  goal: string
+  days: { day: number; focus: string; minutes: number; tasks: string[] }[]
+  params: [number, number]
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  text: string
+  sources: { source_ids?: number[]; materials?: string[] }
+  created_at: number
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api${path}`, init)
   if (!r.ok) {
@@ -63,9 +100,22 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // non-JSON error body
     }
-    throw new Error(msg)
+    throw Object.assign(new Error(msg), { status: r.status })
   }
   return r.json()
+}
+
+/** Retries network failures and 5xx a few times; 4xx answers are final. */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 3000): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      const status = (e as { status?: number }).status
+      if (i >= attempts || (status !== undefined && status < 500)) throw e
+      await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
 }
 
 const post = (body?: unknown): RequestInit => ({
@@ -85,13 +135,14 @@ export const api = {
     fd.append('seq', String(seq))
     fd.append('start_sec', startSec.toFixed(2))
     fd.append('end_sec', endSec.toFixed(2))
-    return req<{ segment: Segment | null }>(`/sessions/${sessionId}/chunks`, { method: 'POST', body: fd })
+    return withRetry(() => req<{ segment: Segment | null }>(`/sessions/${sessionId}/chunks`, { method: 'POST', body: fd }))
   },
 
   bookmark: (sessionId: number, at_sec: number, trigger_type: string) =>
     req<{ id: number; at_sec: number }>(`/sessions/${sessionId}/bookmarks`, post({ at_sec, trigger_type })),
 
-  endSession: (sessionId: number, out_lang: Lang) => req<Note>(`/sessions/${sessionId}/end`, post({ out_lang })),
+  endSession: (sessionId: number, out_lang: Lang, mode: 'lecture' | 'dictation' = 'lecture') =>
+    req<Note>(`/sessions/${sessionId}/end`, post({ out_lang, mode })),
 
   listNotes: () => req<NoteSummary[]>('/notes'),
 
@@ -104,5 +155,32 @@ export const api = {
     const fd = new FormData()
     fd.append('audio', wav, 'answer.wav')
     return req<QuizResult>(`/quiz-attempts/${attemptId}/answer`, { method: 'POST', body: fd })
+  },
+
+  listMaterials: (noteId: number) => req<Material[]>(`/notes/${noteId}/materials`),
+
+  uploadMaterial(noteId: number, file: File) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    return req<Material>(`/notes/${noteId}/materials`, { method: 'POST', body: fd })
+  },
+
+  deleteMaterial: (id: number) => req<{ ok: boolean }>(`/materials/${id}`, { method: 'DELETE' }),
+
+  flashcards: (noteId: number, refresh = false) =>
+    req<{ cards: Flashcard[] }>(`/notes/${noteId}/flashcards${refresh ? '?refresh=true' : ''}`, { method: 'POST' }),
+
+  getPlan: (noteId: number) => req<{ plan: StudyPlan | null }>(`/notes/${noteId}/plan`),
+
+  makePlan: (noteId: number, days: number, minutes: number, refresh = false) =>
+    req<{ plan: StudyPlan }>(`/notes/${noteId}/plan`, post({ days, minutes, refresh })),
+
+  chatHistory: (noteId: number) => req<ChatMessage[]>(`/notes/${noteId}/chat`),
+
+  ask(noteId: number, question: string | Blob) {
+    const fd = new FormData()
+    if (typeof question === 'string') fd.append('text', question)
+    else fd.append('audio', question, 'question.wav')
+    return req<ChatMessage[]>(`/notes/${noteId}/chat`, { method: 'POST', body: fd })
   },
 }
