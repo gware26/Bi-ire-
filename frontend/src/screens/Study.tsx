@@ -55,13 +55,14 @@ export function Study({ note, answerSec, onQuiz, onNewClass, onHome }: Props) {
 
   useEffect(() => stopSpeaking, [])
 
-  // Tab switching by voice works on every tab; each tab adds its own commands on top.
+  // Tab switching + quiz work on every study tab (each tab merges these in).
   const switching: Actions = {
     notes: () => go('notes'),
     cards: () => go('cards'),
     ask: () => go('ask'),
     plan: () => go('plan'),
     materials: () => go('materials'),
+    quiz: onQuiz,
   }
 
   return (

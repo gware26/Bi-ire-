@@ -110,7 +110,7 @@ export default function App() {
       speak(
         mode === 'dictation'
           ? `Your note is saved in ${n.course_name}: ${n.title}.`
-          : `Your notes are ready: ${n.title}. Say "read notes", "quiz me", or "flashcards".`,
+          : `Your notes are ready: ${n.title}. Press Q for a quiz, or open flashcards from the tabs.`,
         'en',
       )
     } catch (e) {

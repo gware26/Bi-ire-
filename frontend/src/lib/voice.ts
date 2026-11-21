@@ -95,7 +95,11 @@ export type Command =
   | 'settings'
 
 const PATTERNS: [Command, RegExp][] = [
-  ['quiz', /\b(start (the )?quiz|quiz me|test me)\b/],
+  // "quiz" alone is enough; ASR often drops "me" or mishears it.
+  [
+    'quiz',
+    /\b(quiz(\s+me)?|start (the )?quiz|test me|give me (a |the )?quiz|quiz time|quizz?es?)\b/,
+  ],
   ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
   ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
   ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
@@ -146,6 +150,22 @@ export function looksLikeStart(raw: string) {
   return words.length <= 4
 }
 
+/** ASR often mangles "quiz me" into near-misses. */
+function looksLikeQuiz(raw: string) {
+  const heard = cleanHeard(raw)
+  if (!heard) return false
+  if (/\bquiz\b/.test(heard)) return true
+  // Common Chrome mishearings of "quiz me"
+  if (/\b(quis|quests?|twins|cause|kiss|chris|quizzy)\s*(me)?\b/.test(heard)) return true
+  const words = heard.split(' ')
+  const last = words[words.length - 1]
+  const prev = words.length > 1 ? words[words.length - 2] : ''
+  if (last === 'me' && ['quiz', 'quis', 'quests', 'quest', 'twins', 'cause', 'kiss'].includes(prev)) {
+    return true
+  }
+  return false
+}
+
 function matchCommand(raw: string): Command | null {
   const heard = cleanHeard(raw)
   if (!heard) return null
@@ -153,6 +173,7 @@ function matchCommand(raw: string): Command | null {
   for (const [cmd, re] of PATTERNS) {
     if (re.test(heard) || re.test(tail)) return cmd
   }
+  if (looksLikeQuiz(heard)) return 'quiz'
   if (looksLikeStart(heard)) return 'start'
   if (looksLikeStop(heard)) return 'stop'
   return null
