@@ -8,7 +8,7 @@ import { announce } from '../lib/announce'
 import { BigButton } from '../components/BigButton'
 
 const CHUNK_SEC = 15
-const SILENCE_PEAK = 0.02
+const SILENCE_PEAK = 0.006
 const QUIET_WARN_SEC = 6
 
 interface Props {

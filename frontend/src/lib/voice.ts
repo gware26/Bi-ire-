@@ -95,15 +95,11 @@ export type Command =
   | 'settings'
 
 const PATTERNS: [Command, RegExp][] = [
-  // More specific phrases first so short words like "start" / "over" do not steal them.
+  // Longer / more specific phrases first.
   ['quiz', /\b(start (the )?quiz|quiz me|test me)\b/],
   ['starttab', /\b((go to|open|show) (the )?start( tab| screen)?|start tab|start screen)\b/],
-  ['start', /^\s*start\s*$|\b(start|begin) (the )?(class|lecture|recording)\b/],
   ['speaknote', /\b(take|speak|dictate) (a |my )?note\b|\bnew note\b/],
   ['flip', /\b(flip( it| the card)?|show (me )?(the )?answer|turn (it )?over)\b/],
-  // "over" alone ends the class; keep older "end class" phrases as backup.
-  ['stop', /^\s*over\s*$|\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
-  ['bookmark', /\b(bookmark|mark (this|that))\b/],
   ['read', /\bread (my |the )?notes\b/],
   ['done', /\b(i'?m done|that'?s my answer|next question)\b/],
   ['home', /\b(go home|main menu|home screen)\b/],
@@ -116,7 +112,31 @@ const PATTERNS: [Command, RegExp][] = [
   ['notes', /\b((open |show |go to )?(my |the )?notes|notes)\b/],
   ['notebooks', /\b((open |show |go to )?(my |the )?notebooks?|notebooks?)\b/],
   ['settings', /\b((open |show |go to )?(the )?settings?|class setup|settings?)\b/],
+  ['bookmark', /\b(bookmark|mark (this|that))\b/],
+  // Short words last; matched against the last few words so "um… start" still works.
+  ['start', /\bstart\b|\bbegin\b/],
+  ['stop', /\bover\b|\b(end|stop|finish) (the )?(class|lecture|recording|note)\b|\bsave (the |my )?note\b/],
 ]
+
+/** Strip punctuation Chrome adds so "start." and "Over!" still match. */
+function cleanHeard(raw: string) {
+  return raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function matchCommand(raw: string): Command | null {
+  const heard = cleanHeard(raw)
+  if (!heard) return null
+  // Chrome continuous mode often appends words; also try the last 4 words alone.
+  const tail = heard.split(' ').slice(-4).join(' ')
+  for (const [cmd, re] of PATTERNS) {
+    if (re.test(heard) || re.test(tail)) return cmd
+  }
+  return null
+}
 
 type Handler = (c: Command) => void
 let activeHandler: Handler | null = null
@@ -151,16 +171,24 @@ export class CommandListener {
     rec.lang = 'en-US'
     rec.continuous = true
     rec.interimResults = true
+    rec.maxAlternatives = 3
     rec.onresult = (e: any) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (this.fired.has(i)) continue
-        const heard: string = e.results[i][0].transcript.toLowerCase()
-        const hit = PATTERNS.find(([, re]) => re.test(heard))
-        if (!hit || Date.now() - this.lastFire < 1500) continue
+        // Try every alternative Chrome offers — quiet / accented speech often isn't #1.
+        let cmd: Command | null = null
+        let heard = ''
+        const alts = e.results[i].length as number
+        for (let a = 0; a < alts; a++) {
+          heard = e.results[i][a].transcript
+          cmd = matchCommand(heard)
+          if (cmd) break
+        }
+        if (!cmd || Date.now() - this.lastFire < 1200) continue
         this.fired.add(i)
         this.lastFire = Date.now()
-        this.onHeard(hit[0], heard.trim())
-        activeHandler?.(hit[0])
+        this.onHeard(cmd, cleanHeard(heard))
+        activeHandler?.(cmd)
       }
     }
     rec.onaudiostart = () => this.onListening(true)

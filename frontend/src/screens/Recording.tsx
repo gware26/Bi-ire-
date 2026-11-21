@@ -10,7 +10,7 @@ import { BigButton } from '../components/BigButton'
 // Each chunk is one Gemini request, and the free tier allows ~20 per model per day.
 const CHUNK_SEC = 15
 // Loudest sample below this = nobody spoke in the chunk, so it is not sent.
-const SILENCE_PEAK = 0.02
+const SILENCE_PEAK = 0.006
 const QUIET_WARN_SEC = 6
 
 interface Props {

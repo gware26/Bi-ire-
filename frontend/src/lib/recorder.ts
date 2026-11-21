@@ -46,8 +46,14 @@ export class ChunkRecorder {
   }
 
   async start() {
+    // autoGainControl lifts quiet / distant voices; noiseSuppression off so soft speech is not erased.
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: true,
+      },
     })
     try {
       this.ctx = new AudioContext({ sampleRate: 16000 })
@@ -61,7 +67,7 @@ export class ChunkRecorder {
     this.node = new AudioWorkletNode(this.ctx, 'capture')
     this.node.port.onmessage = (e: MessageEvent<Float32Array>) => this.push(e.data)
     source.connect(this.node)
-    this.node.connect(this.ctx.destination)
+    // Do not connect to speakers — loopback makes echo-cancellation kill quiet speech.
   }
 
   elapsedSec() {
@@ -116,10 +122,10 @@ function peak(samples: Float32Array): number {
   return p
 }
 
-/** Boosts quiet recordings (far-away lecturer, laptop mic) so speech models hear them, up to 8x. */
+/** Boosts quiet / low-level recordings so speech models hear them (up to 16x). */
 function normalize(samples: Float32Array, p: number) {
   if (p <= 0) return
-  const gain = Math.min(8, 0.9 / p)
+  const gain = Math.min(16, 0.9 / p)
   if (gain <= 1) return
   for (let i = 0; i < samples.length; i++) samples[i] *= gain
 }
