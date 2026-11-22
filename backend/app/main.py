@@ -98,12 +98,7 @@ def health():
     return {
         "ok": True,
         "demo_mode": config.DEMO_MODE,
-        "model": (
-            "addis-scribe"
-            if config.ADDIS_API_KEY
-            else config.GEMINI_MODEL
-        ),
-        "fallback": config.GEMINI_MODEL if config.ADDIS_API_KEY and config.GEMINI_API_KEY else None,
+        "model": "addis-scribe",
         "build": config.BUILD_ID,
     }
 

@@ -4,11 +4,9 @@ In demo mode every function returns scripted data from `demo.py`.
 """
 
 import asyncio
-import base64
 import json
 import re
 import ssl
-import time
 import uuid
 
 import httpx
@@ -21,10 +19,7 @@ SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 SCRIBE_URL = "/api/v1/scribe/transcribe"
 CHAT_URL = "/api/v1/chat_generate"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
-GEMINI_RETRYABLE = {404, 429, 500, 502, 503, 504}
-_exhausted_until: dict[str, float] = {}
 
 
 class AIError(RuntimeError):
@@ -152,93 +147,28 @@ def _flatten_parts(parts: list[dict]) -> str:
     return "\n".join(chunks)
 
 
-def _parts_for_gemini(parts: list[dict]) -> list[dict]:
-    out = []
-    for p in parts:
-        if p.get("text"):
-            out.append({"text": p["text"]})
-        elif p.get("audio"):
-            out.append(
-                {
-                    "inline_data": {
-                        "mime_type": p.get("mime_type") or "audio/wav",
-                        "data": base64.b64encode(p["audio"]).decode(),
-                    }
-                }
-            )
-        elif p.get("inline_data"):
-            out.append({"inline_data": p["inline_data"]})
-    return out
+# Chat rejects English. Notes still come out in the language the prompt asks for.
+_CHAT_LANGS = {"am", "om", "ti", "wal", "sid", "ha", "sw", "fr"}
 
 
-def _retry_delay(r: httpx.Response) -> float:
-    try:
-        for d in r.json()["error"].get("details", []):
-            if "retryDelay" in d:
-                return float(d["retryDelay"].rstrip("s"))
-    except (ValueError, KeyError, TypeError):
-        pass
-    return 60.0
-
-
-async def _gemini_complete(parts: list[dict], schema: dict, temperature: float = 0.2) -> dict:
-    if not config.GEMINI_API_KEY:
-        raise AIError("No Gemini API key set for fallback.")
-    body = {
-        "contents": [{"role": "user", "parts": _parts_for_gemini(parts)}],
-        "generationConfig": {
-            "temperature": temperature,
-            "responseMimeType": "application/json",
-            "responseSchema": schema,
-        },
-    }
-    models = [config.GEMINI_MODEL, *(m for m in config.GEMINI_FALLBACK_MODELS if m != config.GEMINI_MODEL)]
-    now = time.monotonic()
-    ready = [m for m in models if _exhausted_until.get(m, 0) <= now]
-    if not ready:
-        raise AIError("Gemini fallback is over quota. Try later.")
-    errors = []
-    r = None
-    async with httpx.AsyncClient(timeout=config.GEMINI_TIMEOUT, verify=SSL_CONTEXT) as client:
-        for model in ready:
-            try:
-                r = await client.post(
-                    GEMINI_URL.format(model=model),
-                    headers={"x-goog-api-key": config.GEMINI_API_KEY},
-                    json=body,
-                )
-            except httpx.ConnectError as e:
-                raise AIError("No internet connection to Gemini. Check the Wi-Fi and try again.") from e
-            except httpx.HTTPError as e:
-                errors.append(f"{model}: {type(e).__name__}")
-                continue
-            if r.status_code == 200:
-                break
-            errors.append(f"{model}: {r.status_code}")
-            if r.status_code == 429:
-                _exhausted_until[model] = time.monotonic() + _retry_delay(r)
-            if r.status_code not in GEMINI_RETRYABLE:
-                raise AIError(f"Gemini error {r.status_code}: {r.text[:300]}")
-        else:
-            raise AIError("Gemini unavailable (" + "; ".join(errors) + ")")
-    data = r.json()
-    try:
-        text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
-        return json.loads(text)
-    except (KeyError, IndexError, json.JSONDecodeError) as e:
-        raise AIError(f"Unexpected Gemini response: {str(data)[:300]}") from e
+def _chat_language(out_lang: str) -> str:
+    if out_lang in _CHAT_LANGS:
+        return out_lang
+    # English is not a valid target_language. Swahili stays in Latin script
+    # while the prompt tells the model to write the values in English.
+    return "sw"
 
 
 async def _addis_complete(parts: list[dict], schema: dict, temperature: float, out_lang: str) -> dict:
     prompt = (
         _flatten_parts(parts)
-        + "\n\nReturn ONLY valid JSON. No markdown. Match this schema:\n"
+        + f"\n\nWrite the JSON values in {_lang(out_lang)}."
+        + "\nReturn ONLY valid JSON. No markdown. Match this schema:\n"
         + json.dumps(schema)
     )
-    target = out_lang if out_lang in {"en", "am", "om", "ti"} else "en"
     body = {
         "prompt": prompt,
-        "target_language": target,
+        "target_language": _chat_language(out_lang),
         "generation_config": {"temperature": temperature, "maxOutputTokens": 2048},
     }
     r = await _post_json(CHAT_URL, body)
@@ -249,18 +179,10 @@ async def _addis_complete(parts: list[dict], schema: dict, temperature: float, o
 
 
 async def _gemini(parts: list[dict], schema: dict, temperature: float = 0.2, out_lang: str = "en") -> dict:
-    """Addis-Aleph first; Gemini if Addis fails. Name kept so study.py can keep importing it."""
-    addis_err = None
-    if config.ADDIS_API_KEY:
-        try:
-            return await _addis_complete(parts, schema, temperature, out_lang)
-        except AIError as e:
-            addis_err = e
-    if config.GEMINI_API_KEY:
-        return await _gemini_complete(parts, schema, temperature)
-    if addis_err:
-        raise addis_err
-    raise AIError("No Addis or Gemini API key is set.")
+    """Structured JSON via Addis-Aleph. Name kept so study.py can keep importing it."""
+    if not config.ADDIS_API_KEY:
+        raise AIError("No Addis AI API key is set.")
+    return await _addis_complete(parts, schema, temperature, out_lang)
 
 
 # Ethiopic / Ge'ez — real Amharic transcripts must contain these.
@@ -283,64 +205,16 @@ def _normalize_transcript(text: str, lang: str) -> dict:
     return {"text": text, "languages": langs}
 
 
-TRANSCRIBE_PROMPT = """You are transcribing a short chunk of a university lecture recorded in Ethiopia.
-Default language is English. Only mark Amharic or Afaan Oromo when you clearly hear them.
-Transcribe exactly what is said. Do not invent speech. Empty text if silent.
-"languages": codes actually spoken: en, am, om. English only → ["en"].
-"""
-
-TRANSCRIBE_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "text": {"type": "STRING"},
-        "languages": {"type": "ARRAY", "items": {"type": "STRING", "enum": ["en", "am", "om"]}},
-    },
-    "required": ["text", "languages"],
-}
-
-
-async def _transcribe_gemini(audio: bytes, mime: str, previous_text: str = "") -> dict:
-    prompt = TRANSCRIBE_PROMPT
-    if previous_text:
-        prompt += f'\nPrevious chunk ended with: "{previous_text[-300:]}" (context only).'
-    result = await _gemini_complete(
-        [{"text": prompt}, {"audio": audio, "mime_type": mime or "audio/wav"}],
-        TRANSCRIBE_SCHEMA,
-        temperature=0,
-    )
-    text = (result.get("text") or "").strip()
-    lang = "am" if _GEEZ_RE.search(text) else "en"
-    claimed = result.get("languages") or []
-    if "om" in claimed and not _GEEZ_RE.search(text):
-        lang = "om" if "en" not in claimed else "en"
-    return _normalize_transcript(text, lang)
-
-
 async def transcribe(audio: bytes, mime: str, previous_text: str = "", seq: int = 0) -> dict:
     if config.DEMO_MODE:
         return demo.transcribe(seq)
-    addis_err = None
-    if config.ADDIS_API_KEY:
-        primary = config.ADDIS_STT_LANG if config.ADDIS_STT_LANG in {"en", "am", "om"} else "en"
-        if previous_text and _GEEZ_RE.search(previous_text):
-            order = ["am", "en", "om"]
-        else:
-            order = [primary, *(c for c in ("en", "am", "om") if c != primary)]
-        for lang in order:
-            try:
-                text = await _scribe(audio, mime, lang)
-            except AIError as e:
-                addis_err = e
-                break
-            if text:
-                return _normalize_transcript(text, lang)
-        else:
-            return {"text": "", "languages": []}
-    if config.GEMINI_API_KEY:
-        return await _transcribe_gemini(audio, mime, previous_text)
-    if addis_err:
-        raise addis_err
-    raise AIError("No Addis or Gemini API key is set.")
+    if not config.ADDIS_API_KEY:
+        raise AIError("No Addis AI API key is set.")
+    lang = config.ADDIS_STT_LANG if config.ADDIS_STT_LANG in {"en", "am", "om"} else "en"
+    if previous_text and _GEEZ_RE.search(previous_text) and lang == "en":
+        lang = "am"
+    text = await _scribe(audio, mime, lang)
+    return _normalize_transcript(text, lang)
 
 
 _ITEM = {

@@ -7,7 +7,7 @@ import json
 from . import config, demo
 from .ai import _gemini, _lang, transcribe
 
-# Gemini reads these directly; Office files must be saved as PDF first.
+# Text files are sent to Addis as text. PDFs and images are named only.
 SUPPORTED_MIME = {
     "application/pdf",
     "image/png",
