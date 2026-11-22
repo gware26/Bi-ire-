@@ -210,11 +210,33 @@ async def transcribe(audio: bytes, mime: str, previous_text: str = "", seq: int 
         return demo.transcribe(seq)
     if not config.ADDIS_API_KEY:
         raise AIError("No Addis AI API key is set.")
-    lang = config.ADDIS_STT_LANG if config.ADDIS_STT_LANG in {"en", "am", "om"} else "en"
-    if previous_text and _GEEZ_RE.search(previous_text) and lang == "en":
-        lang = "am"
-    text = await _scribe(audio, mime, lang)
-    return _normalize_transcript(text, lang)
+    langs = list(config.ADDIS_STT_LANGS)
+    if previous_text and _GEEZ_RE.search(previous_text) and "am" in langs:
+        langs = ["am", *[code for code in langs if code != "am"]]
+    results = await asyncio.gather(*(_scribe(audio, mime, code) for code in langs), return_exceptions=True)
+    heard: dict[str, str] = {}
+    failure: Exception | None = None
+    for code, result in zip(langs, results):
+        if isinstance(result, Exception):
+            failure = result
+            continue
+        heard[code] = result
+    if not heard and failure:
+        raise failure
+    english = heard.get("en", "")
+    amharic = heard.get("am", "")
+    oromo = heard.get("om", "")
+    if amharic and _GEEZ_RE.search(amharic) and not english:
+        return _normalize_transcript(amharic, "am")
+    if oromo and not english:
+        return _normalize_transcript(oromo, "om")
+    if english:
+        return _normalize_transcript(english, "en")
+    if amharic:
+        return _normalize_transcript(amharic, "am")
+    if oromo:
+        return _normalize_transcript(oromo, "om")
+    return {"text": "", "languages": []}
 
 
 _ITEM = {

@@ -9,7 +9,7 @@ services:
       - key: ADDIS_API_KEY
         sync: false
       - key: ADDIS_STT_LANG
-        value: en
+        value: en,am,om
       - key: DEMO_MODE
         value: "0"
       - key: DB_PATH

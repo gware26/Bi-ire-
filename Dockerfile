@@ -22,7 +22,7 @@ COPY --from=frontend /src/frontend/dist /app/frontend/dist
 ENV FRONTEND_DIST=/app/frontend/dist \
     DB_PATH=/app/data/lissannote.db \
     DEMO_MODE=0 \
-    BUILD_ID=2026-11-22a \
+    BUILD_ID=2026-11-22b \
     PYTHONUNBUFFERED=1
 
 RUN mkdir -p /app/data
